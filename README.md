@@ -111,5 +111,5 @@ python main.py --simulation-type comparative --grid-size 100 --agents 200
 
 ## 作者
 
-Tim-He9
+Akivian
 
