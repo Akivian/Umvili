@@ -1,0 +1,690 @@
+"""
+高度优化的Simulation类 - 专注于核心模拟逻辑
+移除了冗余组件，简化了架构，专注于MARL沙盘的核心功能
+"""
+
+import numpy as np
+from typing import Dict, List, Any, Optional, Tuple, Deque
+from dataclasses import dataclass, field
+from enum import Enum
+import time
+from collections import deque
+import logging
+
+from src.core.agent_base import BaseAgent, AgentStatus, AgentType
+from src.core.agent_factory import get_agent_factory
+from src.core.environment import SugarEnvironment
+from src.config.simulation_config import SimulationConfig
+# 向后兼容：使用默认值
+GRID_SIZE = 80
+CELL_SIZE = 10
+
+
+class SimulationState(Enum):
+    """简化的模拟状态枚举"""
+    READY = "ready"
+    RUNNING = "running"
+    PAUSED = "paused"
+    STOPPED = "stopped"
+
+
+@dataclass
+class SimulationMetrics:
+    """核心指标数据类"""
+    step: int = 0
+    total_agents: int = 0
+    alive_agents: int = 0
+    avg_sugar: float = 0.0
+    avg_age: float = 0.0
+    total_environment_sugar: float = 0.0
+    agent_diversity: float = 0.0
+    agents_by_type: Dict[str, int] = field(default_factory=dict)
+    avg_sugar_by_type: Dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
+class PerformanceMetrics:
+    """性能指标数据类"""
+    fps: float = 0.0
+    step_time: float = 0.0
+    agent_update_time: float = 0.0
+    memory_usage_mb: float = 0.0
+
+
+class AgentManager:
+    """
+    简化的智能体管理器
+    专注于智能体的生命周期管理
+    """
+    
+    def __init__(self):
+        self.agents: List[BaseAgent] = []
+        # 用于分配全局唯一的 agent_id（即使中途有删除）
+        self._agent_id_counter = 0
+    
+    def add_agent(self, agent: BaseAgent) -> None:
+        """添加智能体"""
+        self.agents.append(agent)
+        # 确保计数器始终大于当前已存在的最大 ID
+        self._agent_id_counter = max(self._agent_id_counter, agent.agent_id + 1)
+    
+    def remove_agent(self, agent: BaseAgent) -> None:
+        """移除智能体"""
+        if agent in self.agents:
+            self.agents.remove(agent)
+    
+    def update_agents(self, environment) -> None:
+        """更新所有智能体状态"""
+        dead_agents = []
+        
+        for agent in self.agents:
+            if agent.status != AgentStatus.ALIVE:
+                continue
+            
+            try:
+                is_alive = agent.update(environment)
+                if not is_alive:
+                    dead_agents.append(agent)
+            except Exception as e:
+                logging.warning(f"智能体 {agent.agent_id} 更新失败: {e}")
+                dead_agents.append(agent)
+        
+        # 移除死亡智能体
+        for agent in dead_agents:
+            self.remove_agent(agent)
+    
+    def clear(self) -> None:
+        """清空所有智能体"""
+        self.agents.clear()
+    
+    def get_agents_by_type(self, agent_type: str) -> List[BaseAgent]:
+        """按类型获取智能体"""
+        return [agent for agent in self.agents if agent.agent_type.value == agent_type]
+    
+    def __len__(self) -> int:
+        return len(self.agents)
+
+    def next_id(self) -> int:
+        """获取下一个唯一的智能体 ID"""
+        agent_id = self._agent_id_counter
+        self._agent_id_counter += 1
+        return agent_id
+
+
+class MARLSimulation:
+    """
+    核心MARL模拟类
+    
+    特性：
+    - 高度专注：只处理核心模拟逻辑
+    - 性能优化：最小化不必要的计算
+    - 模块化设计：清晰的职责分离
+    - 易于扩展：支持新的智能体类型和算法
+    """
+    
+    def __init__(
+        self,
+        grid_size: int = GRID_SIZE,
+        cell_size: int = CELL_SIZE,
+        initial_agents: int = 50,
+        sugar_growth_rate: float = 0.1,
+        max_sugar: float = 10.0,
+        agent_configs: Optional[List[Any]] = None
+    ):
+        """
+        初始化模拟
+        
+        Args:
+            grid_size: 网格大小
+            cell_size: 单元格大小
+            initial_agents: 初始智能体数量
+            sugar_growth_rate: 糖生长速率
+            max_sugar: 最大糖量
+            agent_configs: 智能体配置列表
+        """
+        # 基础配置
+        self.grid_size = grid_size
+        self.cell_size = cell_size
+        self.initial_agents = initial_agents
+        self.sugar_growth_rate = sugar_growth_rate
+        self.max_sugar = max_sugar
+        
+        # 状态管理
+        self.state = SimulationState.READY
+        self.step_count = 0
+        self.start_time = time.time()
+        
+        # 核心组件
+        self.environment: Optional[SugarEnvironment] = None
+        self.agent_manager = AgentManager()
+        self.agent_factory = get_agent_factory()
+        # Ensure factory uses the same grid size as this simulation
+        try:
+            self.agent_factory.set_grid_size(self.grid_size)
+        except Exception:
+            # Fail silently if factory doesn't support this (for safety)
+            pass
+        
+        # 数据管理
+        self.current_metrics = SimulationMetrics()
+        self.metrics_history: Deque[SimulationMetrics] = deque(maxlen=500)
+        self.performance_metrics = PerformanceMetrics()
+        
+        # MARL训练器支持
+        self.marl_trainers: Dict[str, Any] = {}
+        
+        # 初始化 - 确保环境大小与配置一致
+        self._initialize_environment()
+        self._initialize_agents(agent_configs)
+        
+        # 性能监控
+        self._frame_times: Deque[float] = deque(maxlen=60)
+        self._last_frame_time = time.time()
+        
+        logging.info(f"MARL模拟系统初始化完成: 网格大小={grid_size}, 智能体数量={len(self.agent_manager)}")
+    
+    def _initialize_environment(self) -> None:
+        """初始化环境"""
+        self.environment = SugarEnvironment(
+            size=self.grid_size,
+            growth_rate=self.sugar_growth_rate,
+            max_sugar=self.max_sugar
+        )
+    
+    def _initialize_agents(self, agent_configs: Optional[List[Any]] = None) -> None:
+        """初始化智能体"""
+        self.agent_manager.clear()
+        
+        if agent_configs:
+            # 使用配置创建智能体
+            agents = self.agent_factory.create_agents(
+                agent_configs,
+                generation_name="initial_population"
+            )
+            for agent in agents:
+                self.agent_manager.add_agent(agent)
+        else:
+            # 创建默认智能体群体
+            self._create_default_agents()
+        
+        logging.info(f"初始化 {len(self.agent_manager)} 个智能体")
+    
+    def _create_default_agents(self) -> None:
+        """创建默认智能体群体 - 修复配置问题"""
+        from src.core.agent_factory import AgentTypeConfig, PositionConfig, DistributionType
+        
+        # 创建多样化的智能体群体 - 确保数量正确
+        # 如果initial_agents为0，使用默认值50
+        total_agents = max(self.initial_agents, 50) if self.initial_agents == 0 else min(self.initial_agents, 100)
+        
+        default_configs = [
+            AgentTypeConfig(
+                agent_type="rule_based",
+                count=max(1, total_agents // 2),  # 确保至少1个
+                config={
+                    "vision_range": min(4, max(1, self.grid_size // 10)),  # 根据网格大小调整视野，至少为1
+                    "metabolism_rate": 1.0,
+                    "movement_strategy": "greedy"
+                },
+                position_config=PositionConfig(distribution=DistributionType.UNIFORM)
+            ),
+            AgentTypeConfig(
+                agent_type="conservative",
+                count=max(1, total_agents // 4),  # 确保至少1个
+                config={
+                    "vision_range": min(3, max(1, self.grid_size // 10)),
+                    "metabolism_rate": 0.5,
+                    "movement_strategy": "conservative"
+                },
+                position_config=PositionConfig(distribution=DistributionType.UNIFORM)
+            ),
+            AgentTypeConfig(
+                agent_type="exploratory",
+                count=max(1, total_agents - (total_agents // 2) - (total_agents // 4)),  # 剩余数量
+                config={
+                    "vision_range": min(6, max(1, self.grid_size // 8)),
+                    "metabolism_rate": 0.8,
+                    "movement_strategy": "exploratory"
+                },
+                position_config=PositionConfig(distribution=DistributionType.UNIFORM)
+            )
+        ]
+        
+        agents = self.agent_factory.create_agents(default_configs, "default_population")
+        for agent in agents:
+            self.agent_manager.add_agent(agent)
+    
+    def register_trainer(self, agent_type: str, trainer: Any) -> None:
+        """
+        注册MARL训练器
+        
+        Args:
+            agent_type: 智能体类型
+            trainer: 训练器实例
+        """
+        self.marl_trainers[agent_type] = trainer
+        logging.info(f"注册训练器 for {agent_type}: {trainer.__class__.__name__}")
+    
+    def start(self) -> None:
+        """启动模拟"""
+        if self.state == SimulationState.READY:
+            self.state = SimulationState.RUNNING
+            self.start_time = time.time()
+            logging.info("模拟启动")
+    
+    def pause(self) -> None:
+        """暂停模拟"""
+        if self.state == SimulationState.RUNNING:
+            self.state = SimulationState.PAUSED
+            logging.info("模拟暂停")
+    
+    def resume(self) -> None:
+        """恢复模拟"""
+        if self.state == SimulationState.PAUSED:
+            self.state = SimulationState.RUNNING
+            logging.info("模拟恢复")
+    
+    def reset(self, new_config: Optional[Dict[str, Any]] = None) -> None:
+        """重置模拟"""
+        logging.info("重置模拟")
+        
+        # 更新配置（如果提供）
+        if new_config:
+            self._update_config(new_config)
+        
+        # 重置状态
+        self.step_count = 0
+        self.metrics_history.clear()
+        
+        # 重新初始化
+        self._initialize_environment()
+        # Sync factory grid size with (potentially updated) simulation grid size
+        try:
+            self.agent_factory.set_grid_size(self.grid_size)
+        except Exception:
+            pass
+        self._initialize_agents()
+        
+        # 自动重新开始模拟，提升交互体验
+        self.state = SimulationState.RUNNING
+        self.start_time = time.time()
+        logging.info("模拟重置完成")
+    
+    def _update_config(self, config: Dict[str, Any]) -> None:
+        """更新配置"""
+        for key, value in config.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+    
+    def update(self) -> bool:
+        """
+        更新模拟状态
+        
+        Returns:
+            是否成功更新
+        """
+        if self.state != SimulationState.RUNNING:
+            return False
+        
+        update_start = time.time()
+        
+        try:
+            # 环境更新
+            self._update_environment()
+            
+            # 智能体更新
+            self._update_agents()
+            
+            # MARL训练（如果启用）
+            self._update_marl_training()
+            
+            # 收集指标
+            self._collect_metrics()
+            
+            # 性能监控
+            self._update_performance_metrics(update_start)
+            
+            self.step_count += 1
+            return True
+            
+        except Exception as e:
+            logging.error(f"模拟更新失败: {e}")
+            return False
+    
+    def _update_environment(self) -> None:
+        """更新环境状态"""
+        if hasattr(self.environment, 'grow_back'):
+            self.environment.grow_back()
+    
+    def _update_agents(self) -> None:
+        """更新所有智能体，并记录耗时"""
+        update_start = time.time()
+        self.agent_manager.update_agents(self.environment)
+        self.performance_metrics.agent_update_time = (time.time() - update_start) * 1000
+    
+    def _update_marl_training(self) -> None:
+        """更新MARL训练"""
+        if not self.marl_trainers or self.step_count % 4 != 0:  # 每4步训练一次
+            return
+        
+        for agent_type, trainer in self.marl_trainers.items():
+            try:
+                if hasattr(trainer, 'train_step'):
+                    trainer.train_step()
+            except Exception as e:
+                logging.warning(f"{agent_type} 训练失败: {e}")
+    
+    def _collect_metrics(self) -> None:
+        """收集模拟指标"""
+        metrics = SimulationMetrics()
+        metrics.step = self.step_count
+        
+        agents = self.agent_manager.agents
+        
+        if not agents:
+            # 没有智能体时的默认值
+            return
+        
+        # 基础统计
+        metrics.total_agents = len(agents)
+        metrics.alive_agents = len([a for a in agents if a.status == AgentStatus.ALIVE])
+        
+        # 计算平均值
+        sugar_values = [a.sugar for a in agents]
+        age_values = [a.age for a in agents]
+        
+        metrics.avg_sugar = np.mean(sugar_values) if sugar_values else 0.0
+        metrics.avg_age = np.mean(age_values) if age_values else 0.0
+        
+        # 环境统计
+        if hasattr(self.environment, 'total_sugar'):
+            metrics.total_environment_sugar = self.environment.total_sugar
+        
+        # 类型统计和多样性
+        self._calculate_diversity_metrics(metrics, agents)
+        
+        # 更新当前指标和历史
+        self.current_metrics = metrics
+        self.metrics_history.append(metrics)
+    
+    def _calculate_diversity_metrics(self, metrics: SimulationMetrics, agents: List[BaseAgent]) -> None:
+        """计算多样性指标"""
+        type_counts = {}
+        type_sugars = {}
+        
+        for agent in agents:
+            agent_type = agent.agent_type.value
+            type_counts[agent_type] = type_counts.get(agent_type, 0) + 1
+            
+            if agent_type not in type_sugars:
+                type_sugars[agent_type] = []
+            type_sugars[agent_type].append(agent.sugar)
+        
+        metrics.agents_by_type = type_counts
+        
+        # 计算类型平均糖量
+        for agent_type, sugars in type_sugars.items():
+            metrics.avg_sugar_by_type[agent_type] = np.mean(sugars)
+        
+        # 计算多样性（香农熵）
+        total_agents = len(agents)
+        diversity = 0.0
+        for count in type_counts.values():
+            proportion = count / total_agents
+            if proportion > 0:
+                diversity -= proportion * np.log(proportion)
+        
+        metrics.agent_diversity = diversity
+    
+    def _update_performance_metrics(self, update_start: float) -> None:
+        """更新性能指标"""
+        # 计算帧率
+        current_time = time.time()
+        frame_time = (current_time - self._last_frame_time) * 1000  # 毫秒
+        self._frame_times.append(frame_time)
+        self._last_frame_time = current_time
+        
+        # 更新性能指标
+        self.performance_metrics.step_time = (current_time - update_start) * 1000
+        self.performance_metrics.fps = 1000.0 / np.mean(self._frame_times) if self._frame_times else 0
+        
+        # 简单的内存使用估计（实际项目中可以使用psutil）
+        self.performance_metrics.memory_usage_mb = len(self.agent_manager.agents) * 0.1  # 估算值
+    
+    def get_simulation_data(self) -> Dict[str, Any]:
+        """
+        获取模拟数据 - 供可视化系统使用
+        
+        Returns:
+            包含所有模拟数据的字典
+        """
+        return {
+            'state': self.state.value,
+            'step_count': self.step_count,
+            'running_time': time.time() - self.start_time,
+            'metrics': self._serialize_metrics(self.current_metrics),
+            'environment': self._get_environment_data(),
+            'agents': self._get_agents_data(),
+            'performance': self._get_performance_data(),
+            'configuration': self._get_configuration_data()
+        }
+    
+    def _serialize_metrics(self, metrics: SimulationMetrics) -> Dict[str, Any]:
+        """序列化指标数据"""
+        return {
+            'step': metrics.step,
+            'total_agents': metrics.total_agents,
+            'alive_agents': metrics.alive_agents,
+            'avg_sugar': metrics.avg_sugar,
+            'avg_age': metrics.avg_age,
+            'total_environment_sugar': metrics.total_environment_sugar,
+            'agent_diversity': metrics.agent_diversity,
+            'agents_by_type': metrics.agents_by_type,
+            'avg_sugar_by_type': metrics.avg_sugar_by_type
+        }
+    
+    def _get_environment_data(self) -> Dict[str, Any]:
+        """获取环境数据"""
+        if self.environment is None:
+            # Fallback if environment not initialized
+            sugar_map = np.zeros((self.grid_size, self.grid_size))
+        else:
+            sugar_map = getattr(self.environment, 'sugar_map', None)
+            if sugar_map is None:
+                sugar_map = np.zeros((self.grid_size, self.grid_size))
+            # Ensure it's a numpy array
+            if not isinstance(sugar_map, np.ndarray):
+                sugar_map = np.array(sugar_map)
+        
+        return {
+            'sugar_map': sugar_map,
+            'total_sugar': getattr(self.environment, 'total_sugar', 0) if self.environment else 0,
+            'avg_sugar': getattr(self.environment, 'avg_sugar', 0) if self.environment else 0,
+            'grid_size': self.grid_size,
+            'cell_size': self.cell_size
+        }
+    
+    def _get_agents_data(self) -> List[Dict[str, Any]]:
+        """获取智能体数据"""
+        agents_data = []
+        for agent in self.agent_manager.agents:
+            # Only include alive agents for visualization
+            if agent.status == AgentStatus.ALIVE:
+                agents_data.append({
+                    'id': agent.agent_id,
+                    'type': agent.agent_type.value,
+                    'x': int(agent.x),  # Ensure integer coordinates
+                    'y': int(agent.y),
+                    'sugar': float(agent.sugar),
+                    'age': int(agent.age),
+                    'status': agent.status.value,
+                    'vision_range': int(agent.vision_range),
+                    'metabolism_rate': float(agent.metabolism_rate),
+                    'total_collected': float(agent.total_collected)
+                })
+        return agents_data
+    
+    def _get_performance_data(self) -> Dict[str, float]:
+        """获取性能数据"""
+        return {
+            'fps': self.performance_metrics.fps,
+            'step_time': self.performance_metrics.step_time,
+            'agent_update_time': self.performance_metrics.agent_update_time,
+            'memory_usage_mb': self.performance_metrics.memory_usage_mb
+        }
+    
+    def _get_configuration_data(self) -> Dict[str, Any]:
+        """获取配置数据"""
+        return {
+            'grid_size': self.grid_size,
+            'cell_size': self.cell_size,
+            'sugar_growth_rate': self.sugar_growth_rate,
+            'max_sugar': self.max_sugar,
+            'marl_trainers': list(self.marl_trainers.keys())
+        }
+    
+    def add_agent(self, agent_type: str, x: int, y: int, **kwargs) -> BaseAgent:
+        """
+        动态添加智能体
+        
+        Args:
+            agent_type: 智能体类型
+            x, y: 位置坐标
+            **kwargs: 额外参数
+            
+        Returns:
+            创建的智能体
+        """
+        # 使用 AgentManager 提供的计数器，确保 ID 全局唯一
+        agent_id = self.agent_manager.next_id()
+        agent = self.agent_factory.create_agent(
+            agent_type=agent_type,
+            x=x, y=y,
+            agent_id=agent_id,
+            **kwargs
+        )
+        self.agent_manager.add_agent(agent)
+        return agent
+    
+    def remove_agent(self, agent_id: int) -> bool:
+        """
+        移除指定智能体
+        
+        Args:
+            agent_id: 智能体ID
+            
+        Returns:
+            是否成功移除
+        """
+        for agent in self.agent_manager.agents:
+            if agent.agent_id == agent_id:
+                self.agent_manager.remove_agent(agent)
+                return True
+        return False
+    
+    def get_agent_info(self, agent_id: int) -> Optional[Dict[str, Any]]:
+        """
+        获取指定智能体的详细信息
+        
+        Args:
+            agent_id: 智能体ID
+            
+        Returns:
+            智能体信息字典
+        """
+        for agent in self.agent_manager.agents:
+            if agent.agent_id == agent_id:
+                return agent.get_agent_info()
+        return None
+    
+    def get_detailed_metrics(self) -> Dict[str, Any]:
+        """获取详细指标报告"""
+        base_data = self.get_simulation_data()
+        
+        # 添加历史数据统计
+        if self.metrics_history:
+            recent_metrics = list(self.metrics_history)[-10:]  # 最近10步
+            base_data['recent_trends'] = {
+                'avg_sugar_trend': [m.avg_sugar for m in recent_metrics],
+                'population_trend': [m.total_agents for m in recent_metrics],
+                'diversity_trend': [m.agent_diversity for m in recent_metrics]
+            }
+        
+        return base_data
+    
+    def __repr__(self) -> str:
+        return (f"MARLSimulation(state={self.state.value}, steps={self.step_count}, "
+                f"agents={len(self.agent_manager.agents)}, grid={self.grid_size})")
+
+
+class SimulationFactory:
+    """
+    模拟工厂 - 用于创建预配置的模拟实例
+    """
+    
+    @staticmethod
+    def create_comparative_simulation() -> MARLSimulation:
+        """创建算法对比模拟"""
+        from src.core.agent_factory import AgentTypeConfig, PositionConfig, DistributionType
+        
+        agent_configs = [
+            AgentTypeConfig(
+                agent_type="rule_based",
+                count=20,
+                config={"vision_range": 4, "metabolism_rate": 1.0},
+                position_config=PositionConfig(distribution=DistributionType.CLUSTERED)
+            ),
+            AgentTypeConfig(
+                agent_type="iql", 
+                count=20,
+                config={"vision_range": 5, "metabolism_rate": 0.8},
+                position_config=PositionConfig(distribution=DistributionType.CLUSTERED)
+            ),
+            AgentTypeConfig(
+                agent_type="conservative",
+                count=15,
+                config={"vision_range": 3, "metabolism_rate": 0.5},
+                position_config=PositionConfig(distribution=DistributionType.CLUSTERED)
+            )
+        ]
+        
+        return MARLSimulation(
+            grid_size=60,
+            initial_agents=0,  # 使用自定义配置
+            agent_configs=agent_configs
+        )
+    
+    @staticmethod
+    def create_marl_training_simulation() -> MARLSimulation:
+        """创建MARL训练模拟"""
+        from src.core.agent_factory import AgentTypeConfig, PositionConfig, DistributionType
+        
+        agent_configs = [
+            AgentTypeConfig(
+                agent_type="iql",
+                count=30,
+                config={
+                    "vision_range": 5,
+                    "metabolism_rate": 1.0,
+                    "learning_rate": 0.001,
+                    "epsilon_start": 1.0
+                },
+                position_config=PositionConfig(distribution=DistributionType.UNIFORM)
+            )
+        ]
+        
+        return MARLSimulation(
+            grid_size=80,
+            initial_agents=0,
+            agent_configs=agent_configs
+        )
+    
+    @staticmethod
+    def create_high_performance_simulation() -> MARLSimulation:
+        """创建高性能模拟（大量智能体）"""
+        return MARLSimulation(
+            grid_size=100,
+            initial_agents=200,
+            sugar_growth_rate=0.15,
+            max_sugar=15.0
+        )
