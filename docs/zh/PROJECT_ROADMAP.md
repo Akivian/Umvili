@@ -93,34 +93,444 @@
 
 ---
 
-### Phase 8: 交互式实验配置系统（优先级：中-高）
+### Phase 8: 交互式实验配置系统（优先级：高）
 
-#### 8.1 可视化参数调整面板
-- **环境参数**：
-  - 网格大小、糖生长速率、最大糖量
-  - 资源类型开关、障碍物密度
-  - 事件系统开关和频率
-- **智能体参数**：
-  - 学习率、折扣因子、探索率衰减
-  - 网络结构（隐藏层维度）
-  - Batch size、Replay buffer 大小
-- **实时调整**：参数修改后立即生效（或提示需要重启模拟）
+**核心目标**：实现无需修改源代码即可在可视化窗口内灵活配置环境、智能体、算法和模型参数，显著提升项目可玩性和研究迭代效率。
 
-#### 8.2 实验配置管理
-- **预设配置**：保存/加载常用实验配置（JSON/YAML）
-- **配置对比**：同时运行多个配置，在同一个窗口中对比结果
-- **参数扫描**：自动运行参数网格搜索，生成对比报告
+---
 
-#### 8.3 智能体管理界面
-- **动态添加/删除智能体**：在运行时添加新智能体或移除现有智能体
-- **智能体类型切换**：将现有智能体从一种类型转换为另一种
-- **智能体状态查看**：点击智能体查看详细信息（位置、糖量、Q值、最近动作等）
+#### 8.1 算法组合选择器（核心功能）
 
-**实现路径**：
-1. 创建 `ParameterControlPanel` 组件（滑块、输入框、下拉菜单）
-2. 实现配置序列化/反序列化（`ConfigManager`）
-3. 在可视化系统中添加“Config”视图
-4. 实现配置热更新机制（需要重启的提示）
+**位置**：Control Panel 顶部 / Experiment Tab 第一区域
+
+**功能**：
+- **下拉菜单/按钮组**：选择算法组合模式
+  - `IQL Only`：仅独立Q学习智能体
+  - `QMIX Only`：仅QMIX智能体
+  - `IQL + QMIX`：两种算法同时运行对比
+  - `Rule-based Baseline`：仅规则型智能体（保守型、探索型、自适应型）
+  - `Mixed (IQL + QMIX + Baseline)`：混合模式，包含所有类型
+  - `Custom`：自定义组合（手动选择每种类型的数量）
+
+**实现要点**：
+- 选择后立即更新智能体配置，调用 `simulation.reset(new_config)`
+- 保持当前环境配置不变（除非用户明确修改）
+- 显示当前选择的算法组合状态
+
+---
+
+#### 8.2 环境配置面板
+
+**位置**：Experiment Tab / Control Panel 扩展区域
+
+**功能模块**：
+
+##### 8.2.1 基础环境参数
+- **网格大小（Grid Size）**：
+  - 滑块：10-200（步长：10）
+  - 输入框：精确输入
+  - 实时预览：显示当前网格大小
+  
+- **资源密度控制**：
+  - **Sugar 生长速率**：滑块 0.0-1.0（步长：0.01）
+  - **Sugar 最大值**：滑块 1.0-100.0（步长：1.0）
+  - **Spice 生长速率**：滑块 0.0-0.1（步长：0.001）
+  - **Spice 最大值**：滑块 1.0-20.0（步长：0.5）
+  - **Hazard 衰减速率**：滑块 0.0-0.1（步长：0.001）
+  - **Hazard 目标覆盖比例**：滑块 0.05-0.25（步长：0.01）
+
+##### 8.2.2 资源类型开关
+- **复选框组**：
+  - ☑ Sugar（基础资源，默认开启）
+  - ☑ Spice（高价值资源，默认开启）
+  - ☑ Hazard（危险区域，默认开启）
+- 关闭某个资源类型后，该资源在地图上不再生成，相关奖励机制也关闭
+
+##### 8.2.3 智能体数量配置
+- **总智能体数量**：滑块 10-500（步长：10）
+- **按类型分配**（当选择 Custom 组合时）：
+  - IQL 数量：滑块 0-200
+  - QMIX 数量：滑块 0-200
+  - Rule-based 数量：滑块 0-200
+  - Conservative 数量：滑块 0-100
+  - Exploratory 数量：滑块 0-100
+  - Adaptive 数量：滑块 0-100
+- **智能分布模式**：
+  - 下拉菜单：Uniform（均匀分布）/ Clustered（聚集分布）/ Random（随机分布）
+
+---
+
+#### 8.3 算法超参数配置面板
+
+**位置**：Experiment Tab 第二区域
+
+**功能模块**：
+
+##### 8.3.1 学习参数（Learning Parameters）
+- **学习率（Learning Rate）**：
+  - 档位选择：低（0.0001）/ 中（0.001）/ 高（0.01）/ 自定义
+  - 自定义模式：输入框 0.0001-0.1（步长：0.0001）
+  
+- **折扣因子（Gamma）**：
+  - 滑块：0.5-0.99（步长：0.01）
+  - 显示当前值：`γ = 0.95`
+
+##### 8.3.2 探索参数（Exploration Parameters）
+- **Epsilon 起始值（Epsilon Start）**：
+  - 滑块：0.0-1.0（步长：0.01）
+  - 默认：1.0（完全探索）
+  
+- **Epsilon 终止值（Epsilon End）**：
+  - 滑块：0.0-0.5（步长：0.01）
+  - 默认：0.01（几乎完全利用）
+  
+- **Epsilon 衰减率（Epsilon Decay）**：
+  - 滑块：0.9-0.9999（步长：0.0001）
+  - 显示衰减曲线预览（可选）
+
+##### 8.3.3 训练参数（Training Parameters）
+- **Replay Buffer 大小**：
+  - 滑块：1000-50000（步长：1000）
+  - 显示内存占用估算
+  
+- **Batch Size**：
+  - 下拉菜单：16 / 32 / 64 / 128 / 256
+  - 或输入框：自定义 8-512
+  
+- **训练频率（Train Frequency）**：
+  - 滑块：1-10（步长：1）
+  - 说明：每 N 步进行一次训练更新
+  
+- **目标网络更新频率（Target Update Frequency）**：
+  - 滑块：10-1000（步长：10）
+  - 说明：每 N 步更新一次目标网络
+
+##### 8.3.4 网络结构参数（Network Architecture）
+- **隐藏层维度（Hidden Dimensions）**：
+  - 预设选择：`[64]` / `[128]` / `[256]` / `[64, 64]` / `[128, 128]` / `[256, 256]`
+  - 自定义模式：输入框（格式：`64,128,64`）
+  
+- **网络类型（Network Type）**：
+  - 下拉菜单：DQN / Dueling DQN / Noisy DQN
+
+##### 8.3.5 智能体基础参数（Agent Base Parameters）
+- **视野范围（Vision Range）**：
+  - 滑块：1-20（步长：1）
+  - 说明：智能体观察范围
+  
+- **新陈代谢速率（Metabolism Rate）**：
+  - 滑块：0.1-5.0（步长：0.1）
+  - 说明：每步消耗的 sugar 量
+  
+- **初始 Sugar**：
+  - 滑块：0-50（步长：1）
+  - 说明：智能体初始生命值
+
+---
+
+#### 8.4 带参数的 Reset 功能
+
+**核心机制**：
+- **"Apply & Reset" 按钮**：
+  - 收集所有 UI 配置参数
+  - 构建配置字典
+  - 调用 `simulation.reset(new_config)`
+  - 整个系统按新配置重新初始化
+
+**配置传递流程**：
+```
+UI 参数收集 → ConfigBuilder → SimulationConfig + AgentConfigs → simulation.reset(config)
+```
+
+**Reset 行为**：
+1. 暂停当前模拟
+2. 清空所有智能体和环境状态
+3. 应用新配置重新初始化环境
+4. 按新配置创建智能体
+5. 重置所有可视化图表和数据
+6. 自动恢复运行状态
+
+**配置验证**：
+- 在 Reset 前验证所有参数的有效性
+- 显示错误提示（如：智能体数量过多、参数范围错误）
+- 阻止无效配置的应用
+
+---
+
+#### 8.5 配置管理功能
+
+##### 8.5.1 预设配置（Preset Configurations）
+- **保存当前配置**：
+  - 按钮："Save Current Config"
+  - 弹出对话框：输入配置名称
+  - 保存为 JSON 文件到 `config/presets/` 目录
+  
+- **加载预设配置**：
+  - 下拉菜单：显示所有已保存的预设
+  - 选择后自动填充所有 UI 控件
+  - 点击 "Apply & Reset" 应用
+  
+- **预设配置类型**：
+  - `Quick Start (IQL)`：快速开始 IQL 实验
+  - `Quick Start (QMIX)`：快速开始 QMIX 实验
+  - `Comparison Mode`：对比模式（IQL + QMIX）
+  - `Baseline Only`：仅规则型智能体
+  - `High Complexity`：高复杂度环境（多资源、大网格）
+  - `Low Complexity`：低复杂度环境（单资源、小网格）
+
+##### 8.5.2 配置导入/导出
+- **导出配置**：
+  - 按钮："Export Config"
+  - 保存为 JSON 文件，用户选择保存位置
+  
+- **导入配置**：
+  - 按钮："Import Config"
+  - 文件选择对话框，加载 JSON 配置
+  - 自动填充所有 UI 控件
+
+##### 8.5.3 配置对比（多配置同时运行）
+- **功能**：在同一个窗口中同时运行多个配置，对比结果
+- **实现方式**：
+  - 创建多个 `MARLSimulation` 实例
+  - 每个实例使用不同的配置
+  - 在可视化窗口中并排显示多个环境视图
+  - 图表中同时显示多个配置的训练曲线（不同颜色）
+- **限制**：最多同时运行 2-4 个配置（性能考虑）
+
+---
+
+#### 8.6 UI 组件设计
+
+##### 8.6.1 Experiment Tab（新视图）
+- **位置**：在现有视图（Overview / Training / Behavior / Debug / Network）基础上新增
+- **布局**：
+  - 顶部：算法组合选择器
+  - 左侧：环境配置面板（可折叠）
+  - 中间：算法超参数配置面板（可折叠）
+  - 右侧：配置管理面板（保存/加载/导入/导出）
+  - 底部：操作按钮区（Apply & Reset / Cancel）
+
+##### 8.6.2 Control Panel 扩展
+- **扩展方式**：
+  - 在现有 Control Panel 下方添加"Quick Config"区域
+  - 提供最常用的配置选项（算法组合、智能体数量、网格大小）
+  - 详细配置在 Experiment Tab 中
+
+##### 8.6.3 参数控件组件库
+- **Slider（滑块）**：
+  - 显示当前值
+  - 显示最小值/最大值
+  - 支持步长设置
+  - 实时更新预览
+  
+- **InputBox（输入框）**：
+  - 数值验证
+  - 范围检查
+  - 格式化显示
+  
+- **Dropdown（下拉菜单）**：
+  - 预设选项
+  - 自定义选项支持
+  
+- **Checkbox（复选框）**：
+  - 资源类型开关
+  - 功能开关
+  
+- **Button Group（按钮组）**：
+  - 算法组合选择
+  - 互斥选择
+
+---
+
+#### 8.7 技术实现路线
+
+##### 阶段 1：核心配置系统（2-3天）
+1. **创建配置构建器（ConfigBuilder）**：
+   - `src/utils/config_builder.py`
+   - 从 UI 控件收集参数
+   - 构建 `SimulationConfig` 和 `AgentConfig` 对象
+   - 验证配置有效性
+
+2. **扩展 `simulation.reset()` 方法**：
+   - 支持完整的配置字典
+   - 处理环境参数更新
+   - 处理智能体配置更新
+   - 处理算法参数更新
+
+3. **创建参数控件组件库**：
+   - `src/utils/ui_components.py`
+   - `Slider`、`InputBox`、`Dropdown`、`Checkbox`、`ButtonGroup` 类
+   - 统一的样式和交互逻辑
+
+##### 阶段 2：Experiment Tab 实现（3-4天）
+1. **创建 Experiment Tab 视图**：
+   - 在 `AcademicVisualizationSystem` 中添加 "experiment" 视图
+   - 实现 Tab 切换逻辑
+
+2. **实现算法组合选择器**：
+   - 下拉菜单/按钮组组件
+   - 选择后更新智能体配置
+
+3. **实现环境配置面板**：
+   - 网格大小、资源参数滑块
+   - 资源类型开关复选框
+   - 智能体数量配置
+
+4. **实现算法超参数面板**：
+   - 学习参数、探索参数、训练参数控件
+   - 网络结构配置
+
+##### 阶段 3：配置管理和 Reset 功能（2-3天）
+1. **实现配置序列化/反序列化**：
+   - JSON 格式保存/加载
+   - 预设配置管理
+   - 导入/导出功能
+
+2. **实现带参数的 Reset**：
+   - "Apply & Reset" 按钮
+   - 配置收集和验证
+   - 调用 `simulation.reset(new_config)`
+   - 重置可视化状态
+
+3. **实现配置对比功能**（可选）：
+   - 多实例模拟支持
+   - 并排可视化
+
+##### 阶段 4：Control Panel 扩展和优化（1-2天）
+1. **扩展 Control Panel**：
+   - 添加 "Quick Config" 区域
+   - 常用配置快速访问
+
+2. **UI 优化**：
+   - 响应式布局
+   - 折叠面板支持
+   - 参数验证提示
+   - 配置预览
+
+3. **错误处理和用户反馈**：
+   - 参数验证错误提示
+   - 配置应用成功/失败提示
+   - 加载状态显示
+
+---
+
+#### 8.8 技术架构设计
+
+##### 8.8.1 配置数据流
+```
+UI Controls → ConfigBuilder → Config Objects → simulation.reset(config) → Reinitialize
+```
+
+##### 8.8.2 核心类设计
+
+**ConfigBuilder**：
+```python
+class ConfigBuilder:
+    def collect_ui_params(self, ui_controls: Dict) -> Dict[str, Any]
+    def build_simulation_config(self, params: Dict) -> SimulationConfig
+    def build_agent_configs(self, params: Dict) -> List[AgentTypeConfig]
+    def validate_config(self, config: Dict) -> Tuple[bool, Optional[str]]
+```
+
+**ExperimentConfigPanel**：
+```python
+class ExperimentConfigPanel:
+    def __init__(self, rect: pygame.Rect, font_manager: FontManager)
+    def draw(self, screen: pygame.Surface)
+    def handle_event(self, event: pygame.event.Event) -> bool
+    def get_config(self) -> Dict[str, Any]
+    def load_config(self, config: Dict[str, Any]) -> None
+```
+
+**UIComponent 基类**：
+```python
+class UIComponent:
+    def draw(self, screen: pygame.Surface)
+    def handle_event(self, event: pygame.event.Event) -> bool
+    def get_value(self) -> Any
+    def set_value(self, value: Any) -> None
+```
+
+##### 8.8.3 配置存储格式
+```json
+{
+  "simulation": {
+    "grid_size": 60,
+    "cell_size": 10,
+    "initial_agents": 100
+  },
+  "environment": {
+    "sugar_growth_rate": 0.1,
+    "max_sugar": 10.0,
+    "spice_growth_rate": 0.02,
+    "max_spice": 6.0,
+    "hazard_decay_rate": 0.01,
+    "hazard_target_fraction": 0.09,
+    "resource_enabled": {
+      "sugar": true,
+      "spice": true,
+      "hazard": true
+    }
+  },
+  "algorithm_combination": "iql_qmix",
+  "agents": {
+    "iql": {
+      "count": 30,
+      "learning_rate": 0.001,
+      "gamma": 0.95,
+      "epsilon_start": 1.0,
+      "epsilon_end": 0.01,
+      "epsilon_decay": 0.995,
+      "replay_buffer_size": 10000,
+      "batch_size": 32,
+      "hidden_dims": [64, 64]
+    },
+    "qmix": {
+      "count": 30,
+      "learning_rate": 0.001,
+      "gamma": 0.95,
+      "epsilon_start": 1.0,
+      "epsilon_end": 0.01,
+      "epsilon_decay": 0.995,
+      "replay_buffer_size": 10000,
+      "batch_size": 32
+    }
+  }
+}
+```
+
+---
+
+#### 8.9 验收标准
+
+- [ ] **算法组合选择**：能够快速切换不同的算法组合，无需重启程序
+- [ ] **环境参数调整**：网格大小、资源参数能够实时调整并生效
+- [ ] **超参数配置**：所有学习参数、探索参数、训练参数都能通过 UI 配置
+- [ ] **带参数 Reset**：修改配置后点击 "Apply & Reset" 能够立即应用新配置
+- [ ] **配置保存/加载**：能够保存当前配置为预设，并能加载预设配置
+- [ ] **配置导入/导出**：能够导出配置为 JSON 文件，并能从 JSON 文件导入
+- [ ] **参数验证**：无效参数能够被检测并提示错误
+- [ ] **UI 响应性**：所有控件响应流畅，无卡顿
+- [ ] **向后兼容**：新功能不影响现有功能，现有配置仍能正常工作
+
+---
+
+#### 8.10 预期效果
+
+**可玩性提升**：
+- 用户可以在可视化窗口内快速尝试不同的算法组合
+- 无需修改代码即可调整所有重要参数
+- 快速对比不同配置的效果
+
+**研究迭代效率提升**：
+- 快速切换实验配置，无需重启程序
+- 保存常用配置为预设，一键加载
+- 配置对比功能支持同时运行多个实验
+
+**用户体验提升**：
+- 直观的 UI 控件，清晰的参数说明
+- 实时预览和验证
+- 错误提示和操作反馈
 
 ---
 
@@ -181,12 +591,13 @@
 |------|------|---------|---------|--------|
 | Phase 6: 增强环境模拟 | ✅ 已完成 | 8-12 小时 | 8-12 小时 | 高 |
 | Phase 7: 深度学习状态监测 | 🔄 部分完成 | 10-15 小时 | 18-27 小时 | 高 |
-| Phase 8: 交互式实验配置 | ⏳ 待开始 | 6-10 小时 | 24-37 小时 | 中-高 |
-| Phase 9: 数据导出与分析 | ⏳ 待开始 | 4-6 小时 | 28-43 小时 | 中 |
-| Phase 10: 高级可视化增强 | ⏳ 待开始 | 6-10 小时 | 34-53 小时 | 中-低 |
+| Phase 8: 交互式实验配置 | ⏳ 待开始 | 20-30 小时 | 38-57 小时 | 高 |
+| Phase 9: 数据导出与分析 | ⏳ 待开始 | 4-6 小时 | 42-63 小时 | 中 |
+| Phase 10: 高级可视化增强 | ⏳ 待开始 | 6-10 小时 | 48-73 小时 | 中-低 |
 
 **已完成**：Phase 6 全部 + Phase 7 核心部分（Q值热图、网络状态可视化）  
-**剩余工作量**：约 16-31 小时（约 0.5-1 周全职开发）
+**当前阶段**：Phase 8 - 交互式实验配置系统（详细规划已完成）  
+**剩余工作量**：约 30-46 小时（约 1-1.5 周全职开发）
 
 ---
 
@@ -212,38 +623,56 @@
 
 ---
 
-## 🎯 短期行动计划（接下来 1-2 周）
+## 🎯 短期行动计划（接下来 2-3 周）
 
-### Week 1: 环境增强 + 深度监测基础
-1. **Day 1-2**：实现多资源环境系统
-   - 扩展 `SugarEnvironment` 支持多资源类型
-   - 添加资源竞争和平衡机制
-   - 更新可视化显示多资源分布
+### Week 1: Phase 8 核心配置系统
+1. **Day 1-2**：创建配置构建器和参数控件组件库
+   - 实现 `ConfigBuilder` 类
+   - 创建 `UIComponent` 基类和子类（Slider、InputBox、Dropdown、Checkbox、ButtonGroup）
+   - 扩展 `simulation.reset()` 方法支持完整配置
 
-2. **Day 3-4**：实现 Q 值热图可视化
-   - 在 `LearningAgent` 中添加 `get_q_value_map()` 方法
-   - 创建 `QValueHeatmapPanel` 组件
-   - 集成到 Behavior 视图
+2. **Day 3-4**：实现 Experiment Tab 基础框架
+   - 在可视化系统中添加 "experiment" 视图
+   - 实现 Tab 切换和布局
+   - 实现算法组合选择器
 
-3. **Day 5**：实现注意力机制可视化（如果算法支持）
-   - 添加注意力权重收集
-   - 创建 `AttentionHeatmapPanel` 组件
+3. **Day 5**：实现环境配置面板
+   - 网格大小、资源参数滑块
+   - 资源类型开关
+   - 智能体数量配置
 
-### Week 2: 交互配置 + 数据导出
-1. **Day 1-2**：实现参数调整面板
-   - 创建 `ParameterControlPanel` 组件
-   - 实现配置序列化/加载
-   - 添加“Config”视图
+### Week 2: Phase 8 超参数配置和 Reset 功能
+1. **Day 1-2**：实现算法超参数配置面板
+   - 学习参数、探索参数、训练参数控件
+   - 网络结构配置
+   - 智能体基础参数
 
-2. **Day 3**：实现数据导出功能
-   - CSV 导出训练指标
-   - 图像导出当前窗口
-   - 添加导出按钮和菜单
+2. **Day 3**：实现带参数的 Reset 功能
+   - "Apply & Reset" 按钮
+   - 配置收集和验证
+   - 调用 `simulation.reset(new_config)`
+   - 重置可视化状态
 
-3. **Day 4-5**：实现实验对比功能
-   - 支持多配置同时运行
-   - 对比图表显示
-   - 实验报告生成
+3. **Day 4-5**：实现配置管理功能
+   - 配置序列化/反序列化（JSON）
+   - 预设配置保存/加载
+   - 配置导入/导出
+
+### Week 3: Phase 8 优化和 Phase 7 剩余部分
+1. **Day 1**：Control Panel 扩展和 UI 优化
+   - 添加 "Quick Config" 区域
+   - 响应式布局和折叠面板
+   - 参数验证和错误提示
+
+2. **Day 2-3**：完成 Phase 7 剩余部分（可选）
+   - 梯度流分析
+   - 权重分布可视化
+   - 经验回放分析
+
+3. **Day 4-5**：测试和优化
+   - 功能测试
+   - 性能优化
+   - 用户体验优化
 
 ---
 
