@@ -507,12 +507,14 @@ class MARLSimulation:
             if not info_list:
                 continue
             
-            # 计算平均值
-            losses = [info.get('avg_loss', 0.0) for info in info_list if info.get('avg_loss', 0.0) > 0]
-            q_values = [info.get('avg_q_value', 0.0) for info in info_list if info.get('avg_q_value', 0.0) != 0]
-            td_errors = [info.get('avg_td_error', 0.0) for info in info_list if info.get('avg_td_error', 0.0) > 0]
-            exploration_rates = [info.get('exploration_rate', info.get('epsilon', 0.0)) 
-                                for info in info_list if info.get('exploration_rate', 0.0) > 0]
+            # 计算平均值（不再强制 > 0 过滤，避免真实为 0 的值被丢弃）
+            losses = [info.get('avg_loss', info.get('recent_loss', 0.0)) for info in info_list]
+            q_values = [info.get('avg_q_value', info.get('recent_q_value', 0.0)) for info in info_list]
+            td_errors = [info.get('avg_td_error', 0.0) for info in info_list]
+            exploration_rates = [
+                info.get('exploration_rate', info.get('epsilon', 0.0))
+                for info in info_list
+            ]
             training_steps = [info.get('training_steps', 0) for info in info_list]
             
             # 获取最近的值（用于实时显示）
@@ -740,7 +742,31 @@ class SimulationFactory:
     def create_comparative_simulation() -> MARLSimulation:
         """创建算法对比模拟"""
         from src.core.agent_factory import AgentTypeConfig, PositionConfig, DistributionType
+        from src.config.defaults import DEFAULT_AGENT_CONFIGS
+        from src.marl.qmix_trainer import QMIXTrainer
         
+        # 使用默认配置构造 QMIX 参数
+        qmix_defaults = DEFAULT_AGENT_CONFIGS.get('qmix', {})
+        qmix_config = {
+            "vision_range": qmix_defaults.get("vision_range", 5),
+            "metabolism_rate": qmix_defaults.get("metabolism_rate", 0.8),
+            "state_dim": qmix_defaults.get("state_dim", 128),
+            "action_dim": qmix_defaults.get("action_dim", 8),
+            "agent_hidden_dims": qmix_defaults.get("agent_hidden_dims", [64, 64]),
+            "mixing_hidden_dim": qmix_defaults.get("mixing_hidden_dim", 32),
+            "learning_rate": qmix_defaults.get("learning_rate", 0.0005),
+            "gamma": qmix_defaults.get("gamma", 0.99),
+            "tau": qmix_defaults.get("tau", 0.005),
+            "epsilon_start": qmix_defaults.get("epsilon_start", 1.0),
+            "epsilon_end": qmix_defaults.get("epsilon_end", 0.05),
+            "epsilon_decay": qmix_defaults.get("epsilon_decay", 0.999),
+            "batch_size": qmix_defaults.get("batch_size", 32),
+            "replay_buffer_size": qmix_defaults.get("replay_buffer_size", 10000),
+            "learning_starts": qmix_defaults.get("learning_starts", 1000),
+            "train_frequency": qmix_defaults.get("train_frequency", 4),
+            "target_update_frequency": qmix_defaults.get("target_update_frequency", 200),
+        }
+
         agent_configs = [
             AgentTypeConfig(
                 agent_type="rule_based",
@@ -755,6 +781,12 @@ class SimulationFactory:
                 position_config=PositionConfig(distribution=DistributionType.CLUSTERED)
             ),
             AgentTypeConfig(
+                agent_type="qmix",
+                count=20,
+                config=qmix_config,
+                position_config=PositionConfig(distribution=DistributionType.CLUSTERED)
+            ),
+            AgentTypeConfig(
                 agent_type="conservative",
                 count=15,
                 config={"vision_range": 3, "metabolism_rate": 0.5},
@@ -762,36 +794,119 @@ class SimulationFactory:
             )
         ]
         
-        return MARLSimulation(
+        sim = MARLSimulation(
             grid_size=60,
             initial_agents=0,  # 使用自定义配置
             agent_configs=agent_configs
         )
+
+        # 为QMIX智能体创建集中式训练器并注册，以便可视化其训练数据
+        qmix_agents = sim.agent_manager.get_agents_by_type("qmix")
+        if qmix_agents:
+            sample_agent = qmix_agents[0]
+            state_dim = getattr(sample_agent, "state_dim", qmix_config["state_dim"])
+            action_dim = getattr(sample_agent, "action_dim", qmix_config["action_dim"])
+
+            qmix_trainer = QMIXTrainer(
+                num_agents=len(qmix_agents),
+                state_dim=state_dim,
+                action_dim=action_dim,
+                config=qmix_config
+            )
+
+            for agent in qmix_agents:
+                if hasattr(agent, "set_trainer"):
+                    agent.set_trainer(qmix_trainer)
+
+            qmix_trainer.sync_agent_networks(qmix_agents)
+            sim.register_trainer("qmix", qmix_trainer)
+
+        return sim
     
     @staticmethod
     def create_marl_training_simulation() -> MARLSimulation:
         """创建MARL训练模拟"""
         from src.core.agent_factory import AgentTypeConfig, PositionConfig, DistributionType
+        from src.config.defaults import DEFAULT_AGENT_CONFIGS
+        from src.marl.qmix_trainer import QMIXTrainer
         
+        # IQL 和 QMIX 共同参与训练对比
+        iql_config = {
+            "vision_range": 5,
+            "metabolism_rate": 1.0,
+            "learning_rate": 0.001,
+            "epsilon_start": 1.0
+        }
+        # 使用默认QMIX配置作为基础
+        qmix_defaults = DEFAULT_AGENT_CONFIGS.get('qmix', {})
+        qmix_config = {
+            "vision_range": qmix_defaults.get("vision_range", 5),
+            "metabolism_rate": qmix_defaults.get("metabolism_rate", 0.8),
+            "state_dim": qmix_defaults.get("state_dim", 128),
+            "action_dim": qmix_defaults.get("action_dim", 8),
+            "agent_hidden_dims": qmix_defaults.get("agent_hidden_dims", [64, 64]),
+            "mixing_hidden_dim": qmix_defaults.get("mixing_hidden_dim", 32),
+            "learning_rate": qmix_defaults.get("learning_rate", 0.0005),
+            "gamma": qmix_defaults.get("gamma", 0.99),
+            "tau": qmix_defaults.get("tau", 0.005),
+            "epsilon_start": qmix_defaults.get("epsilon_start", 1.0),
+            "epsilon_end": qmix_defaults.get("epsilon_end", 0.05),
+            "epsilon_decay": qmix_defaults.get("epsilon_decay", 0.999),
+            "batch_size": qmix_defaults.get("batch_size", 32),
+            "replay_buffer_size": qmix_defaults.get("replay_buffer_size", 10000),
+            "learning_starts": qmix_defaults.get("learning_starts", 1000),
+            "train_frequency": qmix_defaults.get("train_frequency", 4),
+            "target_update_frequency": qmix_defaults.get("target_update_frequency", 200),
+        }
+
         agent_configs = [
             AgentTypeConfig(
                 agent_type="iql",
-                count=30,
-                config={
-                    "vision_range": 5,
-                    "metabolism_rate": 1.0,
-                    "learning_rate": 0.001,
-                    "epsilon_start": 1.0
-                },
+                count=24,
+                config=iql_config,
+                position_config=PositionConfig(distribution=DistributionType.UNIFORM)
+            ),
+            AgentTypeConfig(
+                agent_type="qmix",
+                count=24,
+                config=qmix_config,
                 position_config=PositionConfig(distribution=DistributionType.UNIFORM)
             )
         ]
         
-        return MARLSimulation(
+        sim = MARLSimulation(
             grid_size=80,
             initial_agents=0,
             agent_configs=agent_configs
         )
+
+        # 为QMIX智能体创建集中式训练器，并注册到模拟中
+        qmix_agents = sim.agent_manager.get_agents_by_type("qmix")
+        if qmix_agents:
+            # 从第一个QMIX智能体推断状态和动作维度
+            sample_agent = qmix_agents[0]
+            state_dim = getattr(sample_agent, "state_dim", qmix_config["state_dim"])
+            action_dim = getattr(sample_agent, "action_dim", qmix_config["action_dim"])
+
+            qmix_trainer = QMIXTrainer(
+                num_agents=len(qmix_agents),
+                state_dim=state_dim,
+                action_dim=action_dim,
+                config=qmix_config
+            )
+
+            # 将训练器绑定到所有QMIX智能体
+            for agent in qmix_agents:
+                if hasattr(agent, "set_trainer"):
+                    agent.set_trainer(qmix_trainer)
+
+            # 同步网络参数到所有QMIX智能体
+            qmix_trainer.sync_agent_networks(qmix_agents)
+
+            # 在模拟中注册训练器，便于统一训练和指标收集
+            sim.register_trainer("qmix", qmix_trainer)
+
+        return sim
     
     @staticmethod
     def create_high_performance_simulation() -> MARLSimulation:

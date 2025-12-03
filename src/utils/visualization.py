@@ -99,7 +99,14 @@ class AcademicFontManager:
 
 
 class AgentDistributionPanel:
-    """Combined panel for Agent Types legend and distribution bars."""
+    """
+    Agent 类型分布面板（图例 + 条形图 + 比例信息）。
+
+    设计目标：
+    - 动态反映当前环境中各类型智能体的数量及占比
+    - 支持区分 MARL 算法类（IQL/QMIX等）与规则/策略类智能体
+    - 显示更加丰富的统计信息，而不仅仅是静态的几根柱子
+    """
     
     def __init__(self, x: int, y: int, width: int, height: int,
                  font_manager: AcademicFontManager):
@@ -125,27 +132,45 @@ class AgentDistributionPanel:
             'exploratory': 'Exploratory',
             'adaptive': 'Adaptive',
         }
+
+        # 区分学习型算法与非学习型（用于图例标记）
+        self.learning_types = {'iql', 'independent_q_learning', 'qmix'}
     
-    def draw(self, screen: pygame.Surface, data: Dict[str, int]) -> None:
-        """Draw combined legend + bar chart."""
+    def draw(self,
+             screen: pygame.Surface,
+             counts: Dict[str, int],
+             avg_sugar_by_type: Optional[Dict[str, float]] = None) -> None:
+        """
+        绘制类型分布面板。
+
+        Args:
+            counts: 各类型智能体数量，例如 {'iql': 20, 'qmix': 20, 'rule_based': 20}
+            avg_sugar_by_type: 可选，各类型平均糖量，用于在图例中展示额外状态信息
+        """
         try:
             # Background
             pygame.draw.rect(screen, COLORS['CHART_BG'], self.rect)
             pygame.draw.rect(screen, COLORS['PANEL_BORDER'], self.rect, 1)
             
-            # Title
+            total_agents = sum(counts.values()) if counts else 0
+
+            # Title（包含智能体总数）
+            title_text = "Agent Types & Distribution"
+            if total_agents > 0:
+                title_text += f"  (Total: {total_agents})"
             title_surface = self.font_manager.render_text(
-                "Agent Types & Distribution", 'SMALL', COLORS['TEXT_PRIMARY']
+                title_text, 'SMALL', COLORS['TEXT_PRIMARY']
             )
             screen.blit(title_surface, (self.rect.x + 5, self.rect.y + 5))
             
-            if not data or sum(data.values()) == 0:
+            if not counts or total_agents == 0:
                 empty_text = self.font_manager.render_text("No data", 'TINY', COLORS['TEXT_MUTED'])
                 text_rect = empty_text.get_rect(center=self.rect.center)
                 screen.blit(empty_text, text_rect)
                 return
             
-            sorted_items = sorted(data.items())
+            # 按数量从大到小排序，避免“看起来死”的静态顺序
+            sorted_items = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
             
             # Legend on the left
             legend_x = self.rect.x + self.padding['left']
@@ -156,7 +181,19 @@ class AgentDistributionPanel:
                     continue
                 color = self.agent_type_colors.get(agent_type, COLORS['GRAY'])
                 label = self.agent_type_labels.get(agent_type, agent_type.title())
-                text = f"{label}: {value}"
+                # 占比（%）
+                proportion = (value / total_agents) * 100 if total_agents > 0 else 0.0
+
+                # 额外状态信息：平均糖量（如果提供）
+                extra = ""
+                if avg_sugar_by_type and agent_type in avg_sugar_by_type:
+                    extra = f", AvgSugar: {avg_sugar_by_type[agent_type]:.1f}"
+
+                # 标识是否为学习型算法
+                is_learning = agent_type in self.learning_types
+                algo_tag = " [RL]" if is_learning else ""
+
+                text = f"{label}{algo_tag}: {value} ({proportion:.1f}%){extra}"
                 
                 indicator_rect = pygame.Rect(legend_x, legend_y + i * legend_line_h, 10, 10)
                 pygame.draw.rect(screen, color, indicator_rect)
@@ -174,8 +211,8 @@ class AgentDistributionPanel:
                 self.rect.height - self.padding['top'] - self.padding['bottom'],
             )
             
-            max_value = max(data.values())
-            num_bars = len(data)
+            max_value = max(counts.values())
+            num_bars = len([v for _, v in sorted_items if v > 0])
             bar_spacing = 6
             bar_width = max(10, (chart_area.width - (num_bars - 1) * bar_spacing) // max(num_bars, 1))
             
@@ -1292,17 +1329,14 @@ class AcademicVisualizationSystem:
         # Initialize training metrics charts
         self.training_charts = self._initialize_training_charts(panel_x, panel_width)
         
-        # Combined agent-distribution panel below the last chart
-        # 计算最后一个图表的位置（可能是训练图表或常规图表）
-        last_chart_y = 0
+        # Combined agent-distribution panel below the last training chart
+        # 计算最后一个训练图表的位置
         if self.training_charts:
             last_training_chart = max(self.training_charts.values(), key=lambda c: c.rect.bottom)
-            last_chart_y = max(last_chart_y, last_training_chart.rect.bottom)
-        if self.charts:
-            last_regular_chart = max(self.charts.values(), key=lambda c: c.rect.bottom)
-            last_chart_y = max(last_chart_y, last_regular_chart.rect.bottom)
-        
-        dist_y = last_chart_y + 10 if last_chart_y > 0 else self.control_panel.rect.y + self.panel_top_reserved + 300
+            dist_y = last_training_chart.rect.bottom + 10
+        else:
+            # 如果没有训练图表，使用默认位置
+            dist_y = self.control_panel.rect.y + self.panel_top_reserved + 400
         self.agent_distribution_panel = AgentDistributionPanel(
             panel_x + 15,
             dist_y,
@@ -1319,46 +1353,11 @@ class AcademicVisualizationSystem:
         """
         初始化实时图表 - 使用MultiLineChart统一显示方式
         
-        为了保持向后兼容，单线图表也使用MultiLineChart（只添加一条曲线）
+        注意：常规图表（Population, Average Sugar, Diversity）已隐藏，
+        训练图表将直接使用这些图表的位置。
         """
-        chart_width = panel_width - 30
-        # 略微降低高度和间距，以便在更高的窗口中容纳更多图表
-        chart_height = 85
-        chart_spacing = 8
-        
-        charts = {}
-        
-        # Position charts in a vertical stack below the control-panel reserved area.
-        base_y = self.control_panel.rect.y + self.panel_top_reserved
-        chart_configs = [
-            ('population', "Population", "Count", COLORS['CHART_LINE_1'], base_y),
-            ('avg_sugar', "Average Sugar", "Sugar", COLORS['CHART_LINE_2'],
-             base_y + (chart_height + chart_spacing)),
-            ('diversity', "Diversity", "Index", COLORS['CHART_LINE_3'],
-             base_y + 2 * (chart_height + chart_spacing)),
-        ]
-        
-        for chart_id, title, y_label, color, y_pos in chart_configs:
-            # 使用MultiLineChart，但只添加一条曲线（保持单线显示）
-            chart = MultiLineChart(
-                panel_x + 15,
-                y_pos,
-                chart_width,
-                chart_height,
-                title,
-                y_label,
-                self.font_manager,
-                max_points=200,
-                update_frequency=1,
-                show_legend=False,  # 单线图表不显示图例
-                show_points=False,
-                line_width=2
-            )
-            # 添加默认曲线（使用图表ID作为标签）
-            chart.add_line(chart_id, color=color)
-            charts[chart_id] = chart
-        
-        return charts
+        # 返回空字典，不创建常规图表（已隐藏）
+        return {}
     
     def _initialize_training_charts(self, panel_x: int, panel_width: int) -> Dict[str, MultiLineChart]:
         """
@@ -1369,20 +1368,20 @@ class AcademicVisualizationSystem:
         - Q值趋势（按智能体类型）
         - TD误差（按智能体类型，可选）
         - 探索率（按智能体类型，可选）
+        
+        注意：训练图表现在直接使用原来常规图表的位置（上移）
         """
         chart_width = panel_width - 30
-        # 训练图表使用与常规图表接近的高度与间距，以便在扩展窗口中完整显示
-        chart_height = 85
-        chart_spacing = 8
+        # 提高训练图表高度并略微增加间距，使纵轴刻度和曲线更清晰
+        # 在当前窗口高度（>= 1000）下，这些设置可以保证图表既不互相遮挡，
+        # 也不会覆盖控制面板或超出窗口。
+        chart_height = 120
+        chart_spacing = 12
         
         charts = {}
         
-        # 计算起始位置（在常规图表下方）
-        if self.charts:
-            last_regular_chart = max(self.charts.values(), key=lambda c: c.rect.bottom)
-            base_y = last_regular_chart.rect.bottom + chart_spacing + 20
-        else:
-            base_y = self.control_panel.rect.y + self.panel_top_reserved
+        # 直接使用原来常规图表的位置（上移填补隐藏图表的位置）
+        base_y = self.control_panel.rect.y + self.panel_top_reserved
         
         # 损失函数图表
         charts['loss'] = MultiLineChart(
@@ -1496,21 +1495,25 @@ class AcademicVisualizationSystem:
             self.control_panel.draw(screen, ui_metrics)
             
             # Update and draw charts
-            self._update_charts(ui_metrics, simulation_data)
+            # 注意：常规图表已隐藏，不再更新和绘制
+            # self._update_charts(ui_metrics, simulation_data)
             
-            # Draw regular charts
-            for chart in self.charts.values():
-                chart.draw(screen)
+            # Draw regular charts (已隐藏，跳过)
+            # for chart in self.charts.values():
+            #     chart.draw(screen)
             
-            # Draw training charts
+            # Draw training charts (上移到原来常规图表的位置)
             self._update_training_charts(simulation_data)
             for chart in self.training_charts.values():
                 chart.draw(screen)
             
             # Draw combined agent distribution panel
             if 'metrics' in simulation_data:
-                agents_by_type = simulation_data['metrics'].get('agents_by_type', {})
-                self.agent_distribution_panel.draw(screen, agents_by_type)
+                metrics = simulation_data['metrics']
+                agents_by_type = metrics.get('agents_by_type', {})
+                avg_sugar_by_type = metrics.get('avg_sugar_by_type', {})
+                # 传入数量 + 平均糖量，让分布图展示更多状态信息
+                self.agent_distribution_panel.draw(screen, agents_by_type, avg_sugar_by_type)
             
         except Exception as e:
             print(f"Visualization system drawing failed: {e}")
@@ -1569,18 +1572,34 @@ class AcademicVisualizationSystem:
         if not training_metrics:
             return  # 没有训练数据时跳过
         
+        # 颜色和标签映射：确保不同算法类型使用固定、可区分的颜色和标签
+        label_map = {
+            'iql': 'IQL',
+            'qmix': 'QMIX',
+            'independent_q_learning': 'IQL',
+            'rule_based': 'Rule-Based',
+        }
+        color_map = {
+            'iql': COLORS.get('AGENT_IQL', COLORS['CHART_LINE_2']),
+            'independent_q_learning': COLORS.get('AGENT_IQL', COLORS['CHART_LINE_2']),
+            'qmix': COLORS.get('AGENT_QMIX', COLORS['CHART_LINE_3']),
+            'rule_based': COLORS.get('AGENT_RULE_BASED', COLORS['CHART_LINE_1']),
+        }
+
         # 更新损失函数图表
         if 'loss' in self.training_charts:
             for agent_type, metrics in training_metrics.items():
-                agent_label = agent_type.upper()
+                # 统一标签：例如 'iql' -> 'IQL'
+                agent_label = label_map.get(agent_type, agent_type.upper())
                 
                 # 确保曲线存在（动态添加）
                 if agent_label not in self.training_charts['loss'].lines:
-                    # 根据智能体类型选择颜色
-                    color = COLORS.get(f'AGENT_{agent_label}', COLORS['CHART_LINE_1'])
+                    # 根据智能体类型选择固定颜色，默认退回学术配色
+                    color = color_map.get(agent_type, COLORS['CHART_LINE_1'])
                     self.training_charts['loss'].add_line(agent_label, color=color)
                 
-                if 'recent_loss' in metrics and metrics['recent_loss'] > 0:
+                # 只要存在有效值就更新（允许为0），由MultiLineChart内部负责NaN/Inf过滤
+                if 'recent_loss' in metrics:
                     self.training_charts['loss'].add_data_point_conditional(
                         agent_label,
                         metrics['recent_loss'],
@@ -1590,11 +1609,11 @@ class AcademicVisualizationSystem:
         # 更新Q值趋势图表
         if 'q_value' in self.training_charts:
             for agent_type, metrics in training_metrics.items():
-                agent_label = agent_type.upper()
+                agent_label = label_map.get(agent_type, agent_type.upper())
                 
                 # 确保曲线存在
                 if agent_label not in self.training_charts['q_value'].lines:
-                    color = COLORS.get(f'AGENT_{agent_label}', COLORS['CHART_LINE_1'])
+                    color = color_map.get(agent_type, COLORS['CHART_LINE_1'])
                     self.training_charts['q_value'].add_line(agent_label, color=color)
                 
                 if 'recent_q_value' in metrics:
@@ -1607,14 +1626,14 @@ class AcademicVisualizationSystem:
         # 更新TD误差图表
         if 'td_error' in self.training_charts:
             for agent_type, metrics in training_metrics.items():
-                agent_label = agent_type.upper()
+                agent_label = label_map.get(agent_type, agent_type.upper())
                 
                 # 确保曲线存在
                 if agent_label not in self.training_charts['td_error'].lines:
-                    color = COLORS.get(f'AGENT_{agent_label}', COLORS['CHART_LINE_1'])
+                    color = color_map.get(agent_type, COLORS['CHART_LINE_1'])
                     self.training_charts['td_error'].add_line(agent_label, color=color)
                 
-                if 'avg_td_error' in metrics and metrics['avg_td_error'] > 0:
+                if 'avg_td_error' in metrics:
                     self.training_charts['td_error'].add_data_point_conditional(
                         agent_label,
                         metrics['avg_td_error'],
@@ -1624,14 +1643,14 @@ class AcademicVisualizationSystem:
         # 更新探索率图表
         if 'exploration_rate' in self.training_charts:
             for agent_type, metrics in training_metrics.items():
-                agent_label = agent_type.upper()
+                agent_label = label_map.get(agent_type, agent_type.upper())
                 
                 # 确保曲线存在
                 if agent_label not in self.training_charts['exploration_rate'].lines:
-                    color = COLORS.get(f'AGENT_{agent_label}', COLORS['CHART_LINE_1'])
+                    color = color_map.get(agent_type, COLORS['CHART_LINE_1'])
                     self.training_charts['exploration_rate'].add_line(agent_label, color=color)
                 
-                if 'exploration_rate' in metrics and metrics['exploration_rate'] > 0:
+                if 'exploration_rate' in metrics:
                     self.training_charts['exploration_rate'].add_data_point_conditional(
                         agent_label,
                         metrics['exploration_rate'],
