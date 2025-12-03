@@ -205,6 +205,505 @@ class AgentDistributionPanel:
             print(f"Agent distribution panel drawing failed: {e}")
 
 
+class MultiLineChart:
+    """
+    多线实时图表组件 - 支持多条曲线同时显示
+    
+    特性：
+    - 支持多条曲线，每条曲线有独立的颜色和标签
+    - 动态添加/移除曲线
+    - 性能优化：数据采样、滑动窗口
+    - 美观的图例显示
+    - 自动Y轴缩放
+    - 支持数据点标记
+    - 完善的错误处理
+    """
+    
+    def __init__(self, x: int, y: int, width: int, height: int,
+                 title: str, y_label: str, font_manager: AcademicFontManager,
+                 max_points: int = 200, update_frequency: int = 1,
+                 show_legend: bool = True, show_points: bool = False,
+                 line_width: int = 2, smooth_lines: bool = False):
+        """
+        初始化多线图表
+        
+        Args:
+            x, y: 图表位置
+            width, height: 图表尺寸
+            title: 图表标题
+            y_label: Y轴标签
+            font_manager: 字体管理器
+            max_points: 每条曲线最大数据点数
+            update_frequency: 更新频率（每N步更新一次）
+            show_legend: 是否显示图例
+            show_points: 是否显示数据点
+            line_width: 线条宽度
+            smooth_lines: 是否使用平滑曲线
+        """
+        self.rect = pygame.Rect(x, y, width, height)
+        self.title = title
+        self.y_label = y_label
+        self.font_manager = font_manager
+        self.max_points = max_points
+        self.update_frequency = update_frequency
+        self.show_legend = show_legend
+        self.show_points = show_points
+        self.line_width = line_width
+        self.smooth_lines = smooth_lines
+        
+        # 曲线数据存储：{label: {'data': deque, 'timestamps': deque, 'color': tuple}}
+        self.lines: Dict[str, Dict[str, Any]] = {}
+        
+        # 默认颜色列表（色盲友好）
+        self.default_colors = [
+            COLORS['CHART_LINE_1'],  # Blue
+            COLORS['CHART_LINE_2'],  # Orange
+            COLORS['CHART_LINE_3'],  # Green
+            COLORS['CHART_LINE_4'],  # Red
+            COLORS['CHART_LINE_5'],  # Purple
+            COLORS['AGENT_IQL'],     # Orange (IQL)
+            COLORS['AGENT_QMIX'],    # Green (QMIX)
+        ]
+        self.color_index = 0
+        
+        # 更新计数器
+        self.update_counter = 0
+        
+        # 图表内边距
+        self.padding = {
+            'left': 50,
+            'right': 10,
+            'top': 28,
+            'bottom': 30
+        }
+        
+        # 图例区域（如果显示）
+        if self.show_legend:
+            self.padding['right'] = 120  # 为图例预留空间
+    
+    def add_line(self, label: str, color: Optional[Tuple[int, int, int]] = None) -> bool:
+        """
+        添加一条新曲线
+        
+        Args:
+            label: 曲线标签
+            color: 曲线颜色（如果为None则自动分配）
+            
+        Returns:
+            是否成功添加
+        """
+        if label in self.lines:
+            return False  # 标签已存在
+        
+        if color is None:
+            color = self.default_colors[self.color_index % len(self.default_colors)]
+            self.color_index += 1
+        
+        self.lines[label] = {
+            'data': deque(maxlen=self.max_points),
+            'timestamps': deque(maxlen=self.max_points),
+            'color': color,
+            'visible': True,
+            'min_val': float('inf'),
+            'max_val': float('-inf')
+        }
+        return True
+    
+    def remove_line(self, label: str) -> bool:
+        """
+        移除一条曲线
+        
+        Args:
+            label: 曲线标签
+            
+        Returns:
+            是否成功移除
+        """
+        if label in self.lines:
+            del self.lines[label]
+            return True
+        return False
+    
+    def set_line_visible(self, label: str, visible: bool) -> bool:
+        """
+        设置曲线可见性
+        
+        Args:
+            label: 曲线标签
+            visible: 是否可见
+            
+        Returns:
+            是否成功设置
+        """
+        if label in self.lines:
+            self.lines[label]['visible'] = visible
+            return True
+        return False
+    
+    def add_data_point(self, label: str, value: float, timestamp: int) -> bool:
+        """
+        添加数据点
+        
+        Args:
+            label: 曲线标签
+            value: 数据值
+            timestamp: 时间戳
+            
+        Returns:
+            是否成功添加
+        """
+        if label not in self.lines:
+            return False
+        
+        # 验证数据有效性
+        try:
+            value = float(value)
+            if np.isnan(value) or np.isinf(value):
+                return False
+        except (ValueError, TypeError):
+            return False
+        
+        line = self.lines[label]
+        line['data'].append(value)
+        line['timestamps'].append(int(timestamp))
+        
+        # 更新最小/最大值（用于快速范围计算）
+        if value < line['min_val']:
+            line['min_val'] = value
+        if value > line['max_val']:
+            line['max_val'] = value
+        
+        return True
+    
+    def add_data_point_conditional(self, label: str, value: float, timestamp: int) -> bool:
+        """
+        条件添加数据点（根据更新频率）
+        
+        Args:
+            label: 曲线标签
+            value: 数据值
+            timestamp: 时间戳
+            
+        Returns:
+            是否实际添加了数据点
+        """
+        self.update_counter += 1
+        if self.update_counter % self.update_frequency == 0:
+            return self.add_data_point(label, value, timestamp)
+        return False
+    
+    def clear_line(self, label: str) -> bool:
+        """
+        清空指定曲线的数据
+        
+        Args:
+            label: 曲线标签
+            
+        Returns:
+            是否成功清空
+        """
+        if label in self.lines:
+            self.lines[label]['data'].clear()
+            self.lines[label]['timestamps'].clear()
+            self.lines[label]['min_val'] = float('inf')
+            self.lines[label]['max_val'] = float('-inf')
+            return True
+        return False
+    
+    def clear_all(self) -> None:
+        """清空所有曲线数据"""
+        for label in self.lines:
+            self.clear_line(label)
+    
+    def get_line_count(self) -> int:
+        """获取曲线数量"""
+        return len(self.lines)
+    
+    def get_data_range(self) -> Tuple[float, float]:
+        """
+        计算所有可见曲线的数据范围
+        
+        Returns:
+            (min_value, max_value)
+        """
+        all_values = []
+        for line in self.lines.values():
+            if line['visible'] and len(line['data']) > 0:
+                all_values.extend(line['data'])
+        
+        if not all_values:
+            return (0.0, 1.0)
+        
+        min_val = min(all_values)
+        max_val = max(all_values)
+        
+        # 处理退化情况（所有值相同）
+        if min_val == max_val:
+            delta = 1.0 if min_val == 0 else abs(min_val) * 0.1
+            return (min_val - delta, max_val + delta)
+        
+        # 添加10%边距
+        margin = (max_val - min_val) * 0.1
+        return (min_val - margin, max_val + margin)
+    
+    def draw(self, screen: pygame.Surface) -> None:
+        """绘制图表"""
+        try:
+            # 检查是否有可见数据
+            visible_lines = [line for line in self.lines.values() if line['visible'] and len(line['data']) > 0]
+            
+            if not visible_lines:
+                self._draw_empty_chart(screen)
+                return
+            
+            # 计算图表区域
+            chart_area = pygame.Rect(
+                self.rect.x + self.padding['left'],
+                self.rect.y + self.padding['top'],
+                self.rect.width - self.padding['left'] - self.padding['right'],
+                self.rect.height - self.padding['top'] - self.padding['bottom']
+            )
+            
+            # 绘制背景
+            pygame.draw.rect(screen, COLORS['CHART_BG'], self.rect)
+            pygame.draw.rect(screen, COLORS['PANEL_BORDER'], self.rect, 1)
+            
+            # 绘制标题
+            title_surface = self.font_manager.render_text(self.title, 'SMALL', COLORS['TEXT_PRIMARY'])
+            screen.blit(title_surface, (self.rect.x + 5, self.rect.y + 5))
+            
+            # 计算数据范围
+            min_val, max_val = self.get_data_range()
+            val_range = max_val - min_val or 1.0
+            
+            # 绘制网格
+            self._draw_grid(screen, chart_area, min_val, max_val)
+            
+            # 绘制所有曲线
+            for label, line in self.lines.items():
+                if line['visible'] and len(line['data']) > 0:
+                    self._draw_line(screen, chart_area, label, line, min_val, val_range)
+            
+            # 绘制坐标轴标签
+            self._draw_axes_labels(screen, chart_area, min_val, max_val)
+            
+            # 绘制图例
+            if self.show_legend:
+                self._draw_legend(screen, chart_area)
+                
+        except Exception as e:
+            print(f"MultiLineChart drawing failed: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _draw_empty_chart(self, screen: pygame.Surface) -> None:
+        """绘制空图表占位符"""
+        pygame.draw.rect(screen, COLORS['CHART_BG'], self.rect)
+        pygame.draw.rect(screen, COLORS['PANEL_BORDER'], self.rect, 1)
+        
+        title_surface = self.font_manager.render_text(self.title, 'SMALL', COLORS['TEXT_PRIMARY'])
+        screen.blit(title_surface, (self.rect.x + 5, self.rect.y + 5))
+        
+        empty_text = self.font_manager.render_text("等待数据...", 'TINY', COLORS['TEXT_MUTED'])
+        text_rect = empty_text.get_rect(center=self.rect.center)
+        screen.blit(empty_text, text_rect)
+    
+    def _draw_grid(self, screen: pygame.Surface, chart_area: pygame.Rect,
+                   min_val: float, max_val: float) -> None:
+        """绘制网格线"""
+        num_lines = 5
+        
+        # 水平网格线
+        for i in range(num_lines + 1):
+            y = chart_area.y + (i * chart_area.height // num_lines)
+            pygame.draw.line(screen, COLORS['CHART_GRID'],
+                           (chart_area.x, y), (chart_area.right, y), 1)
+        
+        # 垂直网格线（可选，减少数量以提高性能）
+        num_vertical = 4
+        for i in range(num_vertical + 1):
+            x = chart_area.x + (i * chart_area.width // num_vertical)
+            pygame.draw.line(screen, COLORS['CHART_GRID'],
+                           (x, chart_area.y), (x, chart_area.bottom), 1)
+    
+    def _draw_line(self, screen: pygame.Surface, chart_area: pygame.Rect,
+                   label: str, line: Dict[str, Any], min_val: float, val_range: float) -> None:
+        """绘制单条曲线"""
+        data = line['data']
+        color = line['color']
+        
+        if len(data) < 2:
+            return
+        
+        # 计算点坐标
+        points = []
+        for i, value in enumerate(data):
+            x = chart_area.x + (i / (len(data) - 1)) * chart_area.width
+            y = chart_area.bottom - ((value - min_val) / val_range) * chart_area.height
+            points.append((int(x), int(y)))
+        
+        if len(points) < 2:
+            return
+        
+        # 绘制平滑曲线（如果启用）
+        if self.smooth_lines and len(points) > 2:
+            self._draw_smooth_line(screen, points, color)
+        else:
+            # 绘制折线
+            pygame.draw.lines(screen, color, False, points, self.line_width)
+        
+        # 绘制数据点（如果启用）
+        if self.show_points:
+            point_sample = max(1, len(points) // 20)  # 采样以减少绘制负担
+            for point in points[::point_sample]:
+                pygame.draw.circle(screen, color, point, 3)
+                pygame.draw.circle(screen, COLORS['WHITE'], point, 1)
+    
+    def _draw_smooth_line(self, screen: pygame.Surface, points: List[Tuple[int, int]],
+                         color: Tuple[int, int, int]) -> None:
+        """
+        绘制平滑曲线（使用简单的线性插值）
+        
+        注意：真正的平滑曲线需要更复杂的算法（如样条插值），
+        这里使用简化的方法以提高性能。
+        """
+        if len(points) < 2:
+            return
+        
+        # 对于少量点，直接绘制折线
+        if len(points) <= 10:
+            pygame.draw.lines(screen, color, False, points, self.line_width)
+            return
+        
+        # 使用更密集的点来模拟平滑曲线
+        smoothed_points = []
+        for i in range(len(points) - 1):
+            p1 = points[i]
+            p2 = points[i + 1]
+            
+            # 添加起点
+            smoothed_points.append(p1)
+            
+            # 在两点之间插入中间点（简化平滑）
+            mid_x = (p1[0] + p2[0]) // 2
+            mid_y = (p1[1] + p2[1]) // 2
+            smoothed_points.append((mid_x, mid_y))
+        
+        # 添加最后一个点
+        smoothed_points.append(points[-1])
+        
+        # 绘制平滑后的曲线
+        pygame.draw.lines(screen, color, False, smoothed_points, self.line_width)
+    
+    def _draw_axes_labels(self, screen: pygame.Surface, chart_area: pygame.Rect,
+                         min_val: float, max_val: float) -> None:
+        """绘制坐标轴标签"""
+        num_labels = 5
+        
+        # Y轴标签
+        for i in range(num_labels + 1):
+            value = min_val + (max_val - min_val) * (num_labels - i) / num_labels
+            y = chart_area.y + (i * chart_area.height // num_labels)
+            
+            # 格式化数值
+            if abs(value) < 0.01:
+                value_text = "0"
+            elif abs(value) < 1:
+                value_text = f"{value:.3f}"
+            elif abs(value) < 100:
+                value_text = f"{value:.2f}"
+            else:
+                value_text = f"{value:.1f}"
+            
+            label_surface = self.font_manager.render_text(value_text, 'TINY', COLORS['TEXT_SECONDARY'])
+            screen.blit(label_surface, (self.rect.x + 5, y - 8))
+        
+        # Y轴标签（单位）
+        y_label_surface = self.font_manager.render_text(self.y_label, 'TINY', COLORS['TEXT_SECONDARY'])
+        # 简单放置，不旋转（旋转需要额外处理）
+        screen.blit(y_label_surface, (self.rect.x + 5, self.rect.y + self.rect.height // 2))
+    
+    def _draw_legend(self, screen: pygame.Surface, chart_area: pygame.Rect) -> None:
+        """绘制图例"""
+        visible_lines = [(label, line) for label, line in self.lines.items() if line['visible']]
+        
+        if not visible_lines:
+            return
+        
+        # 图例位置（图表右侧）
+        legend_x = chart_area.right + 10
+        legend_y = chart_area.y
+        legend_item_height = 18
+        legend_width = self.rect.width - chart_area.right - 15
+        
+        # 绘制图例背景（可选）
+        legend_rect = pygame.Rect(
+            legend_x - 5,
+            legend_y - 5,
+            legend_width,
+            len(visible_lines) * legend_item_height + 10
+        )
+        pygame.draw.rect(screen, COLORS['LEGEND_BG'], legend_rect)
+        pygame.draw.rect(screen, COLORS['LEGEND_BORDER'], legend_rect, 1)
+        
+        # 绘制图例项
+        for i, (label, line) in enumerate(visible_lines):
+            item_y = legend_y + i * legend_item_height
+            
+            # 颜色指示器
+            indicator_rect = pygame.Rect(legend_x, item_y, 12, 12)
+            pygame.draw.rect(screen, line['color'], indicator_rect)
+            pygame.draw.rect(screen, COLORS['LEGEND_BORDER'], indicator_rect, 1)
+            
+            # 标签文本
+            # 截断过长的标签
+            display_label = label if len(label) <= 12 else label[:10] + ".."
+            label_surface = self.font_manager.render_text(display_label, 'TINY', COLORS['TEXT_PRIMARY'])
+            screen.blit(label_surface, (legend_x + 16, item_y - 2))
+            
+            # 显示最新值（可选）
+            if len(line['data']) > 0:
+                latest_value = line['data'][-1]
+                value_text = f"{latest_value:.2f}"
+                value_surface = self.font_manager.render_text(value_text, 'TINY', COLORS['TEXT_SECONDARY'])
+                value_x = legend_x + legend_width - value_surface.get_width() - 5
+                screen.blit(value_surface, (value_x, item_y - 2))
+    
+    def get_statistics(self, label: Optional[str] = None) -> Dict[str, Any]:
+        """
+        获取统计信息
+        
+        Args:
+            label: 曲线标签（如果为None则返回所有曲线的统计）
+            
+        Returns:
+            统计信息字典
+        """
+        if label is not None:
+            if label not in self.lines:
+                return {}
+            line = self.lines[label]
+            data = list(line['data'])
+            if not data:
+                return {}
+            
+            return {
+                'label': label,
+                'count': len(data),
+                'min': min(data),
+                'max': max(data),
+                'mean': np.mean(data),
+                'std': np.std(data),
+                'latest': data[-1] if data else None
+            }
+        else:
+            # 返回所有曲线的统计
+            stats = {}
+            for label in self.lines:
+                stats[label] = self.get_statistics(label)
+            return stats
+
+
 class RealTimeChart:
     """Real-time Line Chart Component for Academic Visualization"""
     
@@ -787,11 +1286,23 @@ class AcademicVisualizationSystem:
         self.panel_top_reserved = 260  # px from top of panel
         
         # Initialize charts with a vertical stack layout
+        # 使用MultiLineChart统一图表显示方式
         self.charts = self._initialize_charts(panel_x, panel_width)
         
-        # Combined agent-distribution panel below the last time-series chart
-        last_chart = self.charts['diversity']
-        dist_y = last_chart.rect.bottom + 10
+        # Initialize training metrics charts
+        self.training_charts = self._initialize_training_charts(panel_x, panel_width)
+        
+        # Combined agent-distribution panel below the last chart
+        # 计算最后一个图表的位置（可能是训练图表或常规图表）
+        last_chart_y = 0
+        if self.training_charts:
+            last_training_chart = max(self.training_charts.values(), key=lambda c: c.rect.bottom)
+            last_chart_y = max(last_chart_y, last_training_chart.rect.bottom)
+        if self.charts:
+            last_regular_chart = max(self.charts.values(), key=lambda c: c.rect.bottom)
+            last_chart_y = max(last_chart_y, last_regular_chart.rect.bottom)
+        
+        dist_y = last_chart_y + 10 if last_chart_y > 0 else self.control_panel.rect.y + self.panel_top_reserved + 300
         self.agent_distribution_panel = AgentDistributionPanel(
             panel_x + 15,
             dist_y,
@@ -804,19 +1315,20 @@ class AcademicVisualizationSystem:
         """Get screen dimensions"""
         return (self.screen_width, self.screen_height)
     
-    def _initialize_charts(self, panel_x: int, panel_width: int) -> Dict[str, RealTimeChart]:
-        """Initialize real-time charts"""
+    def _initialize_charts(self, panel_x: int, panel_width: int) -> Dict[str, Any]:
+        """
+        初始化实时图表 - 使用MultiLineChart统一显示方式
+        
+        为了保持向后兼容，单线图表也使用MultiLineChart（只添加一条曲线）
+        """
         chart_width = panel_width - 30
-        # Slightly taller charts so that Y-axis labels are easier to read
-        chart_height = 95
-        chart_spacing = 10
+        # 略微降低高度和间距，以便在更高的窗口中容纳更多图表
+        chart_height = 85
+        chart_spacing = 8
         
         charts = {}
         
         # Position charts in a vertical stack below the control-panel reserved area.
-        #  - population
-        #  - average sugar
-        #  - diversity
         base_y = self.control_panel.rect.y + self.panel_top_reserved
         chart_configs = [
             ('population', "Population", "Count", COLORS['CHART_LINE_1'], base_y),
@@ -827,7 +1339,8 @@ class AcademicVisualizationSystem:
         ]
         
         for chart_id, title, y_label, color, y_pos in chart_configs:
-            charts[chart_id] = RealTimeChart(
+            # 使用MultiLineChart，但只添加一条曲线（保持单线显示）
+            chart = MultiLineChart(
                 panel_x + 15,
                 y_pos,
                 chart_width,
@@ -835,8 +1348,117 @@ class AcademicVisualizationSystem:
                 title,
                 y_label,
                 self.font_manager,
-                color,
+                max_points=200,
+                update_frequency=1,
+                show_legend=False,  # 单线图表不显示图例
+                show_points=False,
+                line_width=2
             )
+            # 添加默认曲线（使用图表ID作为标签）
+            chart.add_line(chart_id, color=color)
+            charts[chart_id] = chart
+        
+        return charts
+    
+    def _initialize_training_charts(self, panel_x: int, panel_width: int) -> Dict[str, MultiLineChart]:
+        """
+        初始化训练指标图表
+        
+        包括：
+        - 损失函数曲线（按智能体类型）
+        - Q值趋势（按智能体类型）
+        - TD误差（按智能体类型，可选）
+        - 探索率（按智能体类型，可选）
+        """
+        chart_width = panel_width - 30
+        # 训练图表使用与常规图表接近的高度与间距，以便在扩展窗口中完整显示
+        chart_height = 85
+        chart_spacing = 8
+        
+        charts = {}
+        
+        # 计算起始位置（在常规图表下方）
+        if self.charts:
+            last_regular_chart = max(self.charts.values(), key=lambda c: c.rect.bottom)
+            base_y = last_regular_chart.rect.bottom + chart_spacing + 20
+        else:
+            base_y = self.control_panel.rect.y + self.panel_top_reserved
+        
+        # 损失函数图表
+        charts['loss'] = MultiLineChart(
+            panel_x + 15,
+            base_y,
+            chart_width,
+            chart_height,
+            "Training Loss",
+            "Loss",
+            self.font_manager,
+            max_points=200,
+            update_frequency=5,  # 每5步更新一次
+            show_legend=True,
+            show_points=False,
+            line_width=2
+        )
+        # 预添加常见的智能体类型曲线
+        charts['loss'].add_line("IQL", color=COLORS['AGENT_IQL'])
+        charts['loss'].add_line("QMIX", color=COLORS['AGENT_QMIX'])
+        
+        # Q值趋势图表
+        charts['q_value'] = MultiLineChart(
+            panel_x + 15,
+            base_y + chart_height + chart_spacing,
+            chart_width,
+            chart_height,
+            "Q-Value Trend",
+            "Q Value",
+            self.font_manager,
+            max_points=200,
+            update_frequency=5,
+            show_legend=True,
+            show_points=False,
+            line_width=2
+        )
+        charts['q_value'].add_line("IQL", color=COLORS['AGENT_IQL'])
+        charts['q_value'].add_line("QMIX", color=COLORS['AGENT_QMIX'])
+        
+        # TD误差图表（可选，默认不显示）
+        charts['td_error'] = MultiLineChart(
+            panel_x + 15,
+            base_y + 2 * (chart_height + chart_spacing),
+            chart_width,
+            chart_height,
+            "TD Error",
+            "TD Error",
+            self.font_manager,
+            max_points=200,
+            update_frequency=5,
+            show_legend=True,
+            show_points=False,
+            line_width=2
+        )
+        charts['td_error'].add_line("IQL", color=COLORS['AGENT_IQL'])
+        charts['td_error'].add_line("QMIX", color=COLORS['AGENT_QMIX'])
+        # 默认隐藏TD误差图表（可通过配置启用）
+        # charts['td_error'].set_line_visible("IQL", False)
+        # charts['td_error'].set_line_visible("QMIX", False)
+        
+        # 探索率图表（可选）
+        charts['exploration_rate'] = MultiLineChart(
+            panel_x + 15,
+            base_y + 3 * (chart_height + chart_spacing),
+            chart_width,
+            chart_height,
+            "Exploration Rate",
+            "Epsilon",
+            self.font_manager,
+            max_points=200,
+            update_frequency=10,  # 探索率变化较慢，更新频率可以更低
+            show_legend=True,
+            show_points=False,
+            line_width=2
+        )
+        charts['exploration_rate'].add_line("IQL", color=COLORS['AGENT_IQL'])
+        charts['exploration_rate'].add_line("QMIX", color=COLORS['AGENT_QMIX'])
         
         return charts
     
@@ -874,8 +1496,15 @@ class AcademicVisualizationSystem:
             self.control_panel.draw(screen, ui_metrics)
             
             # Update and draw charts
-            self._update_charts(ui_metrics)
+            self._update_charts(ui_metrics, simulation_data)
+            
+            # Draw regular charts
             for chart in self.charts.values():
+                chart.draw(screen)
+            
+            # Draw training charts
+            self._update_training_charts(simulation_data)
+            for chart in self.training_charts.values():
                 chart.draw(screen)
             
             # Draw combined agent distribution panel
@@ -910,11 +1539,104 @@ class AcademicVisualizationSystem:
         
         return metrics
     
-    def _update_charts(self, metrics: UIMetrics) -> None:
-        """Update chart data"""
-        self.charts['population'].add_data_point(metrics.total_agents, metrics.step)
-        self.charts['avg_sugar'].add_data_point(metrics.avg_sugar, metrics.step)
-        self.charts['diversity'].add_data_point(metrics.diversity, metrics.step)
+    def _update_charts(self, metrics: UIMetrics, simulation_data: Optional[Dict[str, Any]] = None) -> None:
+        """
+        更新常规图表数据
+        
+        使用MultiLineChart的统一接口，但保持单线显示（每个图表只有一条曲线）
+        """
+        # 更新人口图表
+        if 'population' in self.charts:
+            self.charts['population'].add_data_point_conditional('population', metrics.total_agents, metrics.step)
+        
+        # 更新平均糖量图表
+        if 'avg_sugar' in self.charts:
+            self.charts['avg_sugar'].add_data_point_conditional('avg_sugar', metrics.avg_sugar, metrics.step)
+        
+        # 更新多样性图表
+        if 'diversity' in self.charts:
+            self.charts['diversity'].add_data_point_conditional('diversity', metrics.diversity, metrics.step)
+    
+    def _update_training_charts(self, simulation_data: Dict[str, Any]) -> None:
+        """
+        更新训练指标图表数据
+        
+        从simulation_data中获取training_metrics并更新相应的图表
+        """
+        training_metrics = simulation_data.get('training_metrics', {})
+        step = simulation_data.get('step_count', 0)
+        
+        if not training_metrics:
+            return  # 没有训练数据时跳过
+        
+        # 更新损失函数图表
+        if 'loss' in self.training_charts:
+            for agent_type, metrics in training_metrics.items():
+                agent_label = agent_type.upper()
+                
+                # 确保曲线存在（动态添加）
+                if agent_label not in self.training_charts['loss'].lines:
+                    # 根据智能体类型选择颜色
+                    color = COLORS.get(f'AGENT_{agent_label}', COLORS['CHART_LINE_1'])
+                    self.training_charts['loss'].add_line(agent_label, color=color)
+                
+                if 'recent_loss' in metrics and metrics['recent_loss'] > 0:
+                    self.training_charts['loss'].add_data_point_conditional(
+                        agent_label,
+                        metrics['recent_loss'],
+                        step
+                    )
+        
+        # 更新Q值趋势图表
+        if 'q_value' in self.training_charts:
+            for agent_type, metrics in training_metrics.items():
+                agent_label = agent_type.upper()
+                
+                # 确保曲线存在
+                if agent_label not in self.training_charts['q_value'].lines:
+                    color = COLORS.get(f'AGENT_{agent_label}', COLORS['CHART_LINE_1'])
+                    self.training_charts['q_value'].add_line(agent_label, color=color)
+                
+                if 'recent_q_value' in metrics:
+                    self.training_charts['q_value'].add_data_point_conditional(
+                        agent_label,
+                        metrics['recent_q_value'],
+                        step
+                    )
+        
+        # 更新TD误差图表
+        if 'td_error' in self.training_charts:
+            for agent_type, metrics in training_metrics.items():
+                agent_label = agent_type.upper()
+                
+                # 确保曲线存在
+                if agent_label not in self.training_charts['td_error'].lines:
+                    color = COLORS.get(f'AGENT_{agent_label}', COLORS['CHART_LINE_1'])
+                    self.training_charts['td_error'].add_line(agent_label, color=color)
+                
+                if 'avg_td_error' in metrics and metrics['avg_td_error'] > 0:
+                    self.training_charts['td_error'].add_data_point_conditional(
+                        agent_label,
+                        metrics['avg_td_error'],
+                        step
+                    )
+        
+        # 更新探索率图表
+        if 'exploration_rate' in self.training_charts:
+            for agent_type, metrics in training_metrics.items():
+                agent_label = agent_type.upper()
+                
+                # 确保曲线存在
+                if agent_label not in self.training_charts['exploration_rate'].lines:
+                    color = COLORS.get(f'AGENT_{agent_label}', COLORS['CHART_LINE_1'])
+                    self.training_charts['exploration_rate'].add_line(agent_label, color=color)
+                
+                if 'exploration_rate' in metrics and metrics['exploration_rate'] > 0:
+                    self.training_charts['exploration_rate'].add_data_point_conditional(
+                        agent_label,
+                        metrics['exploration_rate'],
+                        step
+                    )
     
     def handle_event(self, event: pygame.event.Event, simulation: Any) -> bool:
         """Handle events"""

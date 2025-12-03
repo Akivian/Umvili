@@ -43,6 +43,20 @@ class SimulationMetrics:
 
 
 @dataclass
+class TrainingMetrics:
+    """训练指标数据类"""
+    agent_type: str
+    avg_loss: float = 0.0
+    avg_q_value: float = 0.0
+    avg_td_error: float = 0.0
+    exploration_rate: float = 0.0
+    training_steps: int = 0
+    sample_count: int = 0
+    recent_loss: float = 0.0
+    recent_q_value: float = 0.0
+
+
+@dataclass
 class PerformanceMetrics:
     """性能指标数据类"""
     fps: float = 0.0
@@ -169,6 +183,7 @@ class MARLSimulation:
         self.current_metrics = SimulationMetrics()
         self.metrics_history: Deque[SimulationMetrics] = deque(maxlen=500)
         self.performance_metrics = PerformanceMetrics()
+        self.training_metrics: Dict[str, TrainingMetrics] = {}
         
         # MARL训练器支持
         self.marl_trainers: Dict[str, Any] = {}
@@ -403,6 +418,9 @@ class MARLSimulation:
         # 类型统计和多样性
         self._calculate_diversity_metrics(metrics, agents)
         
+        # 收集训练指标
+        self._collect_training_metrics()
+        
         # 更新当前指标和历史
         self.current_metrics = metrics
         self.metrics_history.append(metrics)
@@ -436,6 +454,85 @@ class MARLSimulation:
         
         metrics.agent_diversity = diversity
     
+    def _collect_training_metrics(self) -> None:
+        """收集训练指标"""
+        self.training_metrics.clear()
+        
+        agents = self.agent_manager.agents
+        
+        # 按类型聚合训练指标
+        type_metrics: Dict[str, List[Dict[str, Any]]] = {}
+        
+        # 从智能体收集训练信息
+        for agent in agents:
+            if not hasattr(agent, 'get_training_info'):
+                continue
+            
+            try:
+                agent_type = agent.agent_type.value
+                training_info = agent.get_training_info()
+                
+                if agent_type not in type_metrics:
+                    type_metrics[agent_type] = []
+                
+                type_metrics[agent_type].append(training_info)
+            except Exception as e:
+                logging.debug(f"收集智能体 {agent.agent_id} 训练信息失败: {e}")
+                continue
+        
+        # 从训练器收集统计信息（QMIX等集中式训练）
+        for agent_type, trainer in self.marl_trainers.items():
+            try:
+                if hasattr(trainer, 'get_training_stats'):
+                    stats = trainer.get_training_stats()
+                    
+                    if agent_type not in type_metrics:
+                        type_metrics[agent_type] = []
+                    
+                    # 将训练器统计转换为与智能体统计一致的格式
+                    trainer_info = {
+                        'avg_loss': stats.get('avg_loss', stats.get('recent_loss', 0.0)),
+                        'avg_q_value': stats.get('avg_q_value', stats.get('recent_q_value', 0.0)),
+                        'avg_td_error': stats.get('avg_td_error', 0.0),
+                        'training_steps': stats.get('training_steps', 0),
+                        'exploration_rate': 0.0  # 训练器不直接提供探索率
+                    }
+                    type_metrics[agent_type].append(trainer_info)
+            except Exception as e:
+                logging.debug(f"收集训练器 {agent_type} 统计信息失败: {e}")
+                continue
+        
+        # 聚合每个类型的指标
+        for agent_type, info_list in type_metrics.items():
+            if not info_list:
+                continue
+            
+            # 计算平均值
+            losses = [info.get('avg_loss', 0.0) for info in info_list if info.get('avg_loss', 0.0) > 0]
+            q_values = [info.get('avg_q_value', 0.0) for info in info_list if info.get('avg_q_value', 0.0) != 0]
+            td_errors = [info.get('avg_td_error', 0.0) for info in info_list if info.get('avg_td_error', 0.0) > 0]
+            exploration_rates = [info.get('exploration_rate', info.get('epsilon', 0.0)) 
+                                for info in info_list if info.get('exploration_rate', 0.0) > 0]
+            training_steps = [info.get('training_steps', 0) for info in info_list]
+            
+            # 获取最近的值（用于实时显示）
+            recent_loss = info_list[-1].get('avg_loss', info_list[-1].get('recent_loss', 0.0)) if info_list else 0.0
+            recent_q_value = info_list[-1].get('avg_q_value', info_list[-1].get('recent_q_value', 0.0)) if info_list else 0.0
+            
+            metrics = TrainingMetrics(
+                agent_type=agent_type,
+                avg_loss=np.mean(losses) if losses else 0.0,
+                avg_q_value=np.mean(q_values) if q_values else 0.0,
+                avg_td_error=np.mean(td_errors) if td_errors else 0.0,
+                exploration_rate=np.mean(exploration_rates) if exploration_rates else 0.0,
+                training_steps=max(training_steps) if training_steps else 0,
+                sample_count=len(info_list),
+                recent_loss=recent_loss,
+                recent_q_value=recent_q_value
+            )
+            
+            self.training_metrics[agent_type] = metrics
+    
     def _update_performance_metrics(self, update_start: float) -> None:
         """更新性能指标"""
         # 计算帧率
@@ -466,7 +563,8 @@ class MARLSimulation:
             'environment': self._get_environment_data(),
             'agents': self._get_agents_data(),
             'performance': self._get_performance_data(),
-            'configuration': self._get_configuration_data()
+            'configuration': self._get_configuration_data(),
+            'training_metrics': self._serialize_training_metrics()
         }
     
     def _serialize_metrics(self, metrics: SimulationMetrics) -> Dict[str, Any]:
@@ -542,6 +640,22 @@ class MARLSimulation:
             'max_sugar': self.max_sugar,
             'marl_trainers': list(self.marl_trainers.keys())
         }
+    
+    def _serialize_training_metrics(self) -> Dict[str, Dict[str, Any]]:
+        """序列化训练指标数据"""
+        serialized = {}
+        for agent_type, metrics in self.training_metrics.items():
+            serialized[agent_type] = {
+                'avg_loss': metrics.avg_loss,
+                'avg_q_value': metrics.avg_q_value,
+                'avg_td_error': metrics.avg_td_error,
+                'exploration_rate': metrics.exploration_rate,
+                'training_steps': metrics.training_steps,
+                'sample_count': metrics.sample_count,
+                'recent_loss': metrics.recent_loss,
+                'recent_q_value': metrics.recent_q_value
+            }
+        return serialized
     
     def add_agent(self, agent_type: str, x: int, y: int, **kwargs) -> BaseAgent:
         """
