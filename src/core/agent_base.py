@@ -281,6 +281,10 @@ class BaseAgent(ABC):
         # Action space (to be initialized by subclasses)
         self.action_space: Optional[ActionSpace] = None
         
+        # Harvest tracking (for reward calculation)
+        self._last_harvest_sugar = 0.0
+        self._last_harvest_spice = 0.0
+        
         # Logger
         self.logger = logging.getLogger(f'{self.__class__.__name__}_{agent_id}')
     
@@ -367,10 +371,29 @@ class BaseAgent(ABC):
         self.previous_x, self.previous_y = self.x, self.y
         self.x, self.y = target_x, target_y
         
-        # Harvest sugar
-        collected = self._harvest(environment)
-        self.sugar += collected
-        self.total_collected += collected
+        # Harvest resources（可能包含hazard伤害）
+        harvest_result = self._harvest(environment)
+        # 处理harvest结果（可能是字典或标量，向后兼容）
+        if isinstance(harvest_result, dict):
+            sugar_collected = harvest_result.get('sugar', 0.0)
+            spice_collected = harvest_result.get('spice', 0.0)
+            self.sugar += sugar_collected + spice_collected  # 两者都转换为sugar（保持兼容）
+            self.total_collected += sugar_collected + spice_collected
+            # 存储spice信息，供reward计算使用
+            self._last_harvest_sugar = sugar_collected
+            self._last_harvest_spice = spice_collected
+            
+            # Hazard 伤害：在hazard区域内，agent会直接损失大量sugar
+            hazard_damage = harvest_result.get('hazard_damage', 0.0)
+            if hazard_damage > 0.0:
+                self.sugar -= hazard_damage
+        else:
+            # 向后兼容：标量返回值
+            collected = float(harvest_result)
+            self.sugar += collected
+            self.total_collected += collected
+            self._last_harvest_sugar = collected
+            self._last_harvest_spice = 0.0
         
         # Metabolism consumption
         self.sugar -= self.metabolism_rate
@@ -486,26 +509,32 @@ class BaseAgent(ABC):
         
         return stats
     
-    def _harvest(self, environment: EnvironmentProtocol) -> float:
+    def _harvest(self, environment: EnvironmentProtocol) -> Dict[str, float]:
         """
-        Harvest sugar with error handling
+        Harvest resources with error handling
         
         Args:
             environment: Environment object
             
         Returns:
-            Harvested sugar amount
+            Dictionary with 'sugar', 'spice', 'hazard', 'net_gain'
         """
         try:
             if hasattr(environment, 'harvest'):
                 # 确保坐标在有效范围内
                 x = self._clamp_coordinate(self.x, environment.size)
                 y = self._clamp_coordinate(self.y, environment.size)
-                return environment.harvest(x, y)
-            return 0.0
+                result = environment.harvest(x, y)
+                # 如果返回的是字典，直接返回；如果是标量（向后兼容），转换为字典
+                if isinstance(result, dict):
+                    return result
+                else:
+                    # 向后兼容：如果返回标量，假设全是sugar
+                    return {'sugar': float(result), 'spice': 0.0, 'hazard': 0.0, 'net_gain': float(result)}
+            return {'sugar': 0.0, 'spice': 0.0, 'hazard': 0.0, 'net_gain': 0.0}
         except Exception as e:
-            self.logger.warning(f"智能体 {self.agent_id} 收获糖失败: {e}")
-            return 0.0
+            self.logger.warning(f"智能体 {self.agent_id} 收获资源失败: {e}")
+            return {'sugar': 0.0, 'spice': 0.0, 'hazard': 0.0, 'net_gain': 0.0}
     
     def _update_metrics(self) -> None:
         """Update performance metrics"""

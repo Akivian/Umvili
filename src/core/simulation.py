@@ -672,6 +672,8 @@ class MARLSimulation:
         if self.environment is None:
             # Fallback if environment not initialized
             sugar_map = np.zeros((self.grid_size, self.grid_size))
+            spice_map = np.zeros_like(sugar_map)
+            hazard_map = np.zeros_like(sugar_map)
         else:
             sugar_map = getattr(self.environment, 'sugar_map', None)
             if sugar_map is None:
@@ -679,11 +681,28 @@ class MARLSimulation:
             # Ensure it's a numpy array
             if not isinstance(sugar_map, np.ndarray):
                 sugar_map = np.array(sugar_map)
+            
+            spice_map = getattr(self.environment, 'spice_map', None)
+            if spice_map is None:
+                spice_map = np.zeros_like(sugar_map)
+            if not isinstance(spice_map, np.ndarray):
+                spice_map = np.array(spice_map)
+            
+            hazard_map = getattr(self.environment, 'hazard_map', None)
+            if hazard_map is None:
+                hazard_map = np.zeros_like(sugar_map)
+            if not isinstance(hazard_map, np.ndarray):
+                hazard_map = np.array(hazard_map)
         
         return {
             'sugar_map': sugar_map,
+            'spice_map': spice_map,
+            'hazard_map': hazard_map,
             'total_sugar': getattr(self.environment, 'total_sugar', 0) if self.environment else 0,
             'avg_sugar': getattr(self.environment, 'avg_sugar', 0) if self.environment else 0,
+            'total_spice': getattr(self.environment, 'total_spice', 0) if self.environment else 0,
+            'avg_spice': getattr(self.environment, 'avg_spice', 0) if self.environment else 0,
+            'total_hazard': getattr(self.environment, 'total_hazard', 0) if self.environment else 0,
             'grid_size': self.grid_size,
             'cell_size': self.cell_size
         }
