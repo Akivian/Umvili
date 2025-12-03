@@ -741,6 +741,207 @@ class MultiLineChart:
             return stats
 
 
+class ActionDistributionPanel:
+    """
+    动作分布可视化面板。
+
+    输入数据结构：
+        action_dist = {
+            'iql': {0: 10, 1: 5, 2: 1, ...},
+            'qmix': {0: 3, 2: 7, ...},
+            ...
+        }
+
+    面板设计：
+    - 左侧：图例（算法类型 + 总计动作数 + 全局占比 + 策略熵）
+    - 右侧：按动作索引分组的组合柱状图，每个动作组内分算法类型绘制，
+      使用「相对频率」而非绝对次数，突出策略偏好。
+    """
+
+    def __init__(self, x: int, y: int, width: int, height: int, font_manager: AcademicFontManager):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.font_manager = font_manager
+        self.padding = {'left': 12, 'right': 12, 'top': 26, 'bottom': 20}
+
+        self.agent_type_colors = {
+            'iql': COLORS['AGENT_IQL'],
+            'independent_q_learning': COLORS['AGENT_IQL'],
+            'qmix': COLORS['AGENT_QMIX'],
+            'rule_based': COLORS['AGENT_RULE_BASED'],
+        }
+        self.agent_type_labels = {
+            'iql': 'IQL',
+            'independent_q_learning': 'IQL',
+            'qmix': 'QMIX',
+            'rule_based': 'Rule-Based',
+        }
+
+    def draw(self, screen: pygame.Surface, action_dist: Dict[str, Dict[int, int]]) -> None:
+        try:
+            pygame.draw.rect(screen, COLORS['CHART_BG'], self.rect)
+            pygame.draw.rect(screen, COLORS['PANEL_BORDER'], self.rect, 1)
+
+            title_surface = self.font_manager.render_text(
+                "Action Distribution (per algorithm)", 'SMALL', COLORS['TEXT_PRIMARY']
+            )
+            screen.blit(title_surface, (self.rect.x + 5, self.rect.y + 5))
+
+            if not action_dist:
+                empty_text = self.font_manager.render_text("No action data", 'TINY', COLORS['TEXT_MUTED'])
+                text_rect = empty_text.get_rect(center=self.rect.center)
+                screen.blit(empty_text, text_rect)
+                return
+
+            # 计算每种类型的总动作数，并收集所有动作索引
+            type_totals: Dict[str, int] = {}
+            action_indices: set[int] = set()
+            for agent_type, counts in action_dist.items():
+                if not counts:
+                    continue
+                total = sum(int(c) for c in counts.values())
+                if total <= 0:
+                    continue
+                type_totals[agent_type] = total
+                action_indices.update(counts.keys())
+
+            if not type_totals or not action_indices:
+                empty_text = self.font_manager.render_text("No action data", 'TINY', COLORS['TEXT_MUTED'])
+                text_rect = empty_text.get_rect(center=self.rect.center)
+                screen.blit(empty_text, text_rect)
+                return
+
+            sorted_types = sorted(type_totals.items(), key=lambda kv: kv[0])
+            sorted_actions = sorted(action_indices)
+
+            # 如果动作维度很多，只显示最具代表性的 Top-K 动作，防止过度拥挤
+            max_actions_to_show = 12
+            if len(sorted_actions) > max_actions_to_show:
+                action_global_totals: Dict[int, int] = {}
+                for idx in sorted_actions:
+                    action_global_totals[idx] = sum(
+                        action_dist.get(t, {}).get(idx, 0) for t in type_totals.keys()
+                    )
+                top_actions = sorted(
+                    sorted_actions,
+                    key=lambda idx: action_global_totals.get(idx, 0),
+                    reverse=True
+                )[:max_actions_to_show]
+                sorted_actions = sorted(top_actions)
+
+            # 左侧图例
+            legend_x = self.rect.x + self.padding['left']
+            legend_y = self.rect.y + self.padding['top']
+            legend_line_h = 18
+            total_actions_all = sum(type_totals.values())
+
+            # 预先计算每个算法的策略熵（基于动作分布的离散熵，单位 bit）
+            entropies: Dict[str, float] = {}
+            for agent_type, total in type_totals.items():
+                counts = action_dist.get(agent_type, {})
+                if not counts or total <= 0:
+                    continue
+                probs = []
+                for c in counts.values():
+                    c = int(c)
+                    if c > 0:
+                        probs.append(c / total)
+                if not probs:
+                    continue
+                entropy = 0.0
+                for p in probs:
+                    # 使用 log2，便于直观解释“比特数”
+                    entropy -= p * math.log(p + 1e-12, 2)
+                entropies[agent_type] = entropy
+
+            for i, (agent_type, total) in enumerate(sorted_types):
+                color = self.agent_type_colors.get(agent_type, COLORS['GRAY'])
+                label = self.agent_type_labels.get(agent_type, agent_type.title())
+                proportion = (total / total_actions_all) * 100 if total_actions_all > 0 else 0.0
+                entropy_text = ""
+                if agent_type in entropies:
+                    entropy_text = f", H={entropies[agent_type]:.2f}"
+                text = f"{label}: {total} ({proportion:.1f}%){entropy_text}"
+
+                indicator_rect = pygame.Rect(legend_x, legend_y + i * legend_line_h, 10, 10)
+                pygame.draw.rect(screen, color, indicator_rect)
+                pygame.draw.rect(screen, COLORS['LEGEND_BORDER'], indicator_rect, 1)
+
+                text_surface = self.font_manager.render_text(text, 'TINY', COLORS['TEXT_PRIMARY'])
+                screen.blit(text_surface, (legend_x + 16, legend_y - 2 + i * legend_line_h))
+
+            # 右侧组合柱状图区域
+            chart_left = self.rect.x + self.rect.width // 2 + 5
+            chart_area = pygame.Rect(
+                chart_left,
+                self.rect.y + self.padding['top'] + 4,
+                self.rect.width - (chart_left - self.rect.x) - self.padding['right'],
+                self.rect.height - self.padding['top'] - self.padding['bottom'],
+            )
+
+            num_actions = len(sorted_actions)
+            num_types = len(sorted_types)
+            if num_actions <= 0 or num_types <= 0:
+                return
+
+            group_width = chart_area.width / num_actions
+            # 给每个动作组留一点间隔
+            group_inner_width = group_width * 0.8
+            bar_width = max(4, int(group_inner_width / num_types))
+
+            # 找出全局最大「相对频率」用于归一化（更具可比性）
+            max_value = 0.0
+            for agent_type, total in type_totals.items():
+                counts = action_dist.get(agent_type, {})
+                if not counts or total <= 0:
+                    continue
+                for idx, c in counts.items():
+                    if idx not in sorted_actions:
+                        continue
+                    c = int(c)
+                    if c <= 0:
+                        continue
+                    value = c / total
+                    if value > max_value:
+                        max_value = value
+
+            if max_value <= 0:
+                return
+
+            # 为每个动作索引画一组条形
+            for action_i, action_idx in enumerate(sorted_actions):
+                group_x_center = chart_area.x + (action_i + 0.5) * group_width
+                # 每种类型的条从左到右排列
+                start_x = group_x_center - (group_inner_width / 2)
+
+                for t_i, (agent_type, _) in enumerate(sorted_types):
+                    counts = action_dist.get(agent_type, {})
+                    raw = int(counts.get(action_idx, 0))
+                    if raw <= 0:
+                        continue
+
+                    total = type_totals.get(agent_type, 0)
+                    if total <= 0:
+                        continue
+
+                    value = raw / total
+                    height_ratio = value / max_value
+                    bar_height = int(height_ratio * chart_area.height)
+                    x = int(start_x + t_i * bar_width)
+                    y = chart_area.bottom - bar_height
+
+                    bar_rect = pygame.Rect(x, y, bar_width, bar_height)
+                    color = self.agent_type_colors.get(agent_type, COLORS['GRAY'])
+                    pygame.draw.rect(screen, color, bar_rect)
+                    pygame.draw.rect(screen, COLORS['PANEL_BORDER'], bar_rect, 1)
+
+                # 在组底部标记动作索引
+                idx_text = self.font_manager.render_text(str(action_idx), 'TINY', COLORS['TEXT_SECONDARY'])
+                idx_rect = idx_text.get_rect(center=(group_x_center, chart_area.bottom + 10))
+                screen.blit(idx_text, idx_rect)
+
+        except Exception as e:
+            print(f"Action distribution panel drawing failed: {e}")
+
 class RealTimeChart:
     """Real-time Line Chart Component for Academic Visualization"""
     
@@ -1317,26 +1518,99 @@ class AcademicVisualizationSystem:
         panel_width = screen_width - panel_x - 10
         panel_height = screen_height - 20
         self.control_panel = AcademicControlPanel(panel_x, 10, panel_width, panel_height)
+
+        # 视图系统：Overview / Training / Behavior / Debug
+        self.views = ["overview", "training", "behavior", "debug"]
+        self.active_view = "training"  # 默认以训练视图为主
+        self.view_tabs = []  # List[Tuple[view_id, rect]]
+        self.view_tab_rects: Dict[str, pygame.Rect] = {}
+
+        # 统一的训练图表配置（性能相关）
+        self.training_chart_max_points = 200
+        self.training_chart_update_freq = 5
+        self.exploration_chart_update_freq = 10
+
+        # Tab 相关尺寸（用于视图与图表区域的分区）
+        self.view_tab_height = 22
+        self.view_tab_margin = 6
         
         # Layout constants inside panel
         # Reserve top area of the panel for title, buttons and statistics
         self.panel_top_reserved = 260  # px from top of panel
         
+        # 初始化视图 Tab
+        self._initialize_view_tabs(panel_x)
+
+        # 图表区域顶部：在统计区和 Tab 之下，避免任何遮挡
+        self.charts_top = (
+            self.control_panel.rect.y
+            + self.panel_top_reserved
+            + self.view_tab_height
+            + self.view_tab_margin
+        )
+
         # Initialize charts with a vertical stack layout
-        # 使用MultiLineChart统一图表显示方式
+        # 使用MultiLineChart统一图表显示方式（当前常规图表在UI中隐藏）
         self.charts = self._initialize_charts(panel_x, panel_width)
         
         # Initialize training metrics charts
         self.training_charts = self._initialize_training_charts(panel_x, panel_width)
         
-        # Combined agent-distribution panel below the last training chart
-        # 计算最后一个训练图表的位置
-        if self.training_charts:
-            last_training_chart = max(self.training_charts.values(), key=lambda c: c.rect.bottom)
-            dist_y = last_training_chart.rect.bottom + 10
-        else:
-            # 如果没有训练图表，使用默认位置
-            dist_y = self.control_panel.rect.y + self.panel_top_reserved + 400
+        # Behavior 视图：奖励趋势 & 策略熵曲线图
+        behavior_chart_area_x = panel_x + 15
+        behavior_chart_width = panel_width - 30
+        behavior_chart_height = 100
+        behavior_row_spacing = 8
+        behavior_slots = self._build_chart_grid(
+            start_x=behavior_chart_area_x,
+            start_y=self.charts_top,
+            total_width=behavior_chart_width,
+            rows=2,
+            cols=1,
+            chart_height=behavior_chart_height,
+            row_spacing=behavior_row_spacing,
+            col_spacing=0,
+        )
+        self.behavior_charts: Dict[str, MultiLineChart] = {}
+        if behavior_slots:
+            reward_rect = behavior_slots[0]
+            self.behavior_charts["reward_trend"] = MultiLineChart(
+                reward_rect.x,
+                reward_rect.y,
+                reward_rect.width,
+                reward_rect.height,
+                "Reward Trend",
+                "Avg / Recent Reward",
+                self.font_manager,
+                max_points=self.training_chart_max_points,
+                update_frequency=self.training_chart_update_freq,
+                show_legend=True,
+                show_points=False,
+                line_width=2,
+            )
+            self.behavior_charts["reward_trend"].add_line("IQL", color=COLORS["AGENT_IQL"])
+            self.behavior_charts["reward_trend"].add_line("QMIX", color=COLORS["AGENT_QMIX"])
+        if len(behavior_slots) >= 2:
+            entropy_rect = behavior_slots[1]
+            self.behavior_charts["policy_entropy"] = MultiLineChart(
+                entropy_rect.x,
+                entropy_rect.y,
+                entropy_rect.width,
+                entropy_rect.height,
+                "Policy Entropy",
+                "Entropy (bits)",
+                self.font_manager,
+                max_points=self.training_chart_max_points,
+                update_frequency=self.training_chart_update_freq,
+                show_legend=True,
+                show_points=False,
+                line_width=2,
+            )
+            self.behavior_charts["policy_entropy"].add_line("IQL", color=COLORS["AGENT_IQL"])
+            self.behavior_charts["policy_entropy"].add_line("QMIX", color=COLORS["AGENT_QMIX"])
+        
+        # Combined agent-distribution panel 默认位置（实际绘制时不再依赖精确 rect.y）
+        dist_y = self.control_panel.rect.y + self.panel_top_reserved + 4 * 140
         self.agent_distribution_panel = AgentDistributionPanel(
             panel_x + 15,
             dist_y,
@@ -1344,10 +1618,109 @@ class AcademicVisualizationSystem:
             150,
             self.font_manager,
         )
+
+        # 行为视图：动作分布面板（位于图表区域内，宽度与训练图表一致）
+        self.action_distribution_panel = ActionDistributionPanel(
+            panel_x + 15,
+            self.charts_top,
+            panel_width - 30,
+            220,
+            self.font_manager,
+        )
     
     def get_screen_info(self) -> Tuple[int, int]:
         """Get screen dimensions"""
         return (self.screen_width, self.screen_height)
+
+    # ------------------------------------------------------------------
+    # Layout helpers
+    # ------------------------------------------------------------------
+    def _build_chart_grid(
+        self,
+        start_x: int,
+        start_y: int,
+        total_width: int,
+        rows: int,
+        cols: int,
+        chart_height: int,
+        row_spacing: int = 12,
+        col_spacing: int = 12,
+    ) -> List[pygame.Rect]:
+        """
+        根据行列数生成图表槽位 Rect 列表（行优先顺序）。
+
+        设计目标：
+        - 在给定宽度区域内平均分配列宽，并预留列/行间距。
+        - 统一 Training / Behavior 等视图内部的图表布局。
+        """
+        rects: List[pygame.Rect] = []
+        if rows <= 0 or cols <= 0:
+            return rects
+
+        # 水平方向：平均分配列宽
+        total_col_spacing = col_spacing * (cols - 1) if cols > 1 else 0
+        col_width = max(40, (total_width - total_col_spacing) // cols)
+
+        y = start_y
+        for _row in range(rows):
+            x = start_x
+            for _col in range(cols):
+                rects.append(pygame.Rect(x, y, col_width, chart_height))
+                x += col_width + col_spacing
+            y += chart_height + row_spacing
+
+        return rects
+
+    # ------------------------------------------------------------------
+    # View Tabs
+    # ------------------------------------------------------------------
+    def _initialize_view_tabs(self, panel_x: int) -> None:
+        """初始化右侧面板顶部的视图 Tab 按钮"""
+        tab_labels = {
+            "overview": "Overview",
+            "training": "Training",
+            "behavior": "Behavior",
+            "debug": "Debug",
+        }
+        tab_width = 90
+        tab_height = self.view_tab_height
+        spacing = 4
+        x = panel_x
+        # 放在 Simulation Statistics 区域下方、训练图表上方（不遮挡统计或图表）
+        y = self.control_panel.rect.y + self.panel_top_reserved + 4
+
+        self.view_tabs.clear()
+        self.view_tab_rects.clear()
+
+        for view_id in self.views:
+            rect = pygame.Rect(x, y, tab_width, tab_height)
+            self.view_tabs.append((view_id, rect))
+            self.view_tab_rects[view_id] = rect
+            x += tab_width + spacing
+
+    def _draw_view_tabs(self, screen: pygame.Surface) -> None:
+        """绘制视图切换 Tab"""
+        mouse_pos = pygame.mouse.get_pos()
+        for view_id, rect in self.view_tabs:
+            is_active = (view_id == self.active_view)
+
+            if is_active:
+                bg_color = COLORS['BUTTON_ACTIVE']
+                text_color = COLORS['WHITE']
+            elif rect.collidepoint(mouse_pos):
+                bg_color = COLORS['BUTTON_HOVER']
+                text_color = COLORS['TEXT_PRIMARY']
+            else:
+                bg_color = COLORS['BUTTON_NORMAL']
+                text_color = COLORS['TEXT_PRIMARY']
+
+            pygame.draw.rect(screen, bg_color, rect, border_radius=4)
+            pygame.draw.rect(screen, COLORS['PANEL_BORDER'], rect, 1, border_radius=4)
+
+            label = view_id.capitalize()
+            text_surface = self.font_manager.render_text(label, 'TINY', text_color)
+            text_rect = text_surface.get_rect(center=rect.center)
+            screen.blit(text_surface, text_rect)
     
     def _initialize_charts(self, panel_x: int, panel_width: int) -> Dict[str, Any]:
         """
@@ -1371,29 +1744,52 @@ class AcademicVisualizationSystem:
         
         注意：训练图表现在直接使用原来常规图表的位置（上移）
         """
-        chart_width = panel_width - 30
-        # 提高训练图表高度并略微增加间距，使纵轴刻度和曲线更清晰
-        # 在当前窗口高度（>= 1000）下，这些设置可以保证图表既不互相遮挡，
-        # 也不会覆盖控制面板或超出窗口。
+        # Training 视图采用 2×2 网格布局：
+        # ┌───────┬───────┐
+        # │ Loss  │ Q     │
+        # ├───────┼───────┤
+        # │ TD    │ Eps   │
+        # └───────┴───────┘
+        chart_area_x = panel_x + 15
+        chart_area_width = panel_width - 30
         chart_height = 120
-        chart_spacing = 12
-        
-        charts = {}
-        
-        # 直接使用原来常规图表的位置（上移填补隐藏图表的位置）
-        base_y = self.control_panel.rect.y + self.panel_top_reserved
-        
-        # 损失函数图表
+        row_spacing = 12
+        col_spacing = 16
+        # 图表区域顶部由 charts_top 统一控制，避免与 Tab/统计信息重叠
+        base_y = self.charts_top
+
+        slots = self._build_chart_grid(
+            start_x=chart_area_x,
+            start_y=base_y,
+            total_width=chart_area_width,
+            rows=2,
+            cols=2,
+            chart_height=chart_height,
+            row_spacing=row_spacing,
+            col_spacing=col_spacing,
+        )
+
+        charts: Dict[str, MultiLineChart] = {}
+        if len(slots) < 4:
+            # 安全防护：退回到单列布局
+            slots = [
+                pygame.Rect(chart_area_x, base_y + i * (chart_height + row_spacing),
+                            chart_area_width, chart_height)
+                for i in range(4)
+            ]
+
+        # 损失函数图表（左上）
+        loss_rect = slots[0]
         charts['loss'] = MultiLineChart(
-            panel_x + 15,
-            base_y,
-            chart_width,
-            chart_height,
+            loss_rect.x,
+            loss_rect.y,
+            loss_rect.width,
+            loss_rect.height,
             "Training Loss",
             "Loss",
             self.font_manager,
-            max_points=200,
-            update_frequency=5,  # 每5步更新一次
+            max_points=self.training_chart_max_points,
+            update_frequency=self.training_chart_update_freq,
             show_legend=True,
             show_points=False,
             line_width=2
@@ -1402,17 +1798,18 @@ class AcademicVisualizationSystem:
         charts['loss'].add_line("IQL", color=COLORS['AGENT_IQL'])
         charts['loss'].add_line("QMIX", color=COLORS['AGENT_QMIX'])
         
-        # Q值趋势图表
+        # Q值趋势图表（右上）
+        q_rect = slots[1]
         charts['q_value'] = MultiLineChart(
-            panel_x + 15,
-            base_y + chart_height + chart_spacing,
-            chart_width,
-            chart_height,
+            q_rect.x,
+            q_rect.y,
+            q_rect.width,
+            q_rect.height,
             "Q-Value Trend",
             "Q Value",
             self.font_manager,
-            max_points=200,
-            update_frequency=5,
+            max_points=self.training_chart_max_points,
+            update_frequency=self.training_chart_update_freq,
             show_legend=True,
             show_points=False,
             line_width=2
@@ -1420,17 +1817,18 @@ class AcademicVisualizationSystem:
         charts['q_value'].add_line("IQL", color=COLORS['AGENT_IQL'])
         charts['q_value'].add_line("QMIX", color=COLORS['AGENT_QMIX'])
         
-        # TD误差图表（可选，默认不显示）
+        # TD误差图表（左下，可选）
+        td_rect = slots[2]
         charts['td_error'] = MultiLineChart(
-            panel_x + 15,
-            base_y + 2 * (chart_height + chart_spacing),
-            chart_width,
-            chart_height,
+            td_rect.x,
+            td_rect.y,
+            td_rect.width,
+            td_rect.height,
             "TD Error",
             "TD Error",
             self.font_manager,
-            max_points=200,
-            update_frequency=5,
+            max_points=self.training_chart_max_points,
+            update_frequency=self.training_chart_update_freq,
             show_legend=True,
             show_points=False,
             line_width=2
@@ -1441,17 +1839,18 @@ class AcademicVisualizationSystem:
         # charts['td_error'].set_line_visible("IQL", False)
         # charts['td_error'].set_line_visible("QMIX", False)
         
-        # 探索率图表（可选）
+        # 探索率图表（右下，可选）
+        eps_rect = slots[3]
         charts['exploration_rate'] = MultiLineChart(
-            panel_x + 15,
-            base_y + 3 * (chart_height + chart_spacing),
-            chart_width,
-            chart_height,
+            eps_rect.x,
+            eps_rect.y,
+            eps_rect.width,
+            eps_rect.height,
             "Exploration Rate",
             "Epsilon",
             self.font_manager,
-            max_points=200,
-            update_frequency=10,  # 探索率变化较慢，更新频率可以更低
+            max_points=self.training_chart_max_points,
+            update_frequency=self.exploration_chart_update_freq,  # 探索率变化较慢，更新频率可以更低
             show_legend=True,
             show_points=False,
             line_width=2
@@ -1491,29 +1890,80 @@ class AcademicVisualizationSystem:
             # Prepare UI metrics
             ui_metrics = self._prepare_ui_metrics(simulation_data)
             
-            # Draw control panel
+            # Draw control panel（基础统计）
             self.control_panel.draw(screen, ui_metrics)
-            
-            # Update and draw charts
-            # 注意：常规图表已隐藏，不再更新和绘制
-            # self._update_charts(ui_metrics, simulation_data)
-            
-            # Draw regular charts (已隐藏，跳过)
-            # for chart in self.charts.values():
-            #     chart.draw(screen)
-            
-            # Draw training charts (上移到原来常规图表的位置)
-            self._update_training_charts(simulation_data)
-            for chart in self.training_charts.values():
-                chart.draw(screen)
-            
-            # Draw combined agent distribution panel
-            if 'metrics' in simulation_data:
-                metrics = simulation_data['metrics']
-                agents_by_type = metrics.get('agents_by_type', {})
-                avg_sugar_by_type = metrics.get('avg_sugar_by_type', {})
-                # 传入数量 + 平均糖量，让分布图展示更多状态信息
-                self.agent_distribution_panel.draw(screen, agents_by_type, avg_sugar_by_type)
+
+            # 绘制视图 Tab
+            self._draw_view_tabs(screen)
+
+            # 根据当前视图绘制对应内容
+            if self.active_view == "training":
+                # 训练视图：Loss / Q / TD / Exploration + 类型分布
+                self._update_training_charts(simulation_data)
+                for chart in self.training_charts.values():
+                    chart.draw(screen)
+
+                # 将 Agent 分布面板紧贴在训练图表下方（仍然属于“图表区域”之内）
+                if 'metrics' in simulation_data and self.training_charts:
+                    last_training_chart = max(self.training_charts.values(), key=lambda c: c.rect.bottom)
+                    self.agent_distribution_panel.rect.y = last_training_chart.rect.bottom + 10
+                    available_height = self.control_panel.rect.bottom - self.agent_distribution_panel.rect.y - 20
+                    self.agent_distribution_panel.rect.height = max(140, min(180, available_height))
+
+                    metrics = simulation_data['metrics']
+                    agents_by_type = metrics.get('agents_by_type', {})
+                    avg_sugar_by_type = metrics.get('avg_sugar_by_type', {})
+                    self.agent_distribution_panel.draw(screen, agents_by_type, avg_sugar_by_type)
+
+            elif self.active_view == "overview":
+                # 概览视图：在“图表区域”顶部展示类型分布
+                if 'metrics' in simulation_data:
+                    top_y = self.charts_top
+                    self.agent_distribution_panel.rect.y = top_y
+                    available_height = self.control_panel.rect.bottom - top_y - 20
+                    self.agent_distribution_panel.rect.height = max(140, min(200, available_height))
+
+                    metrics = simulation_data['metrics']
+                    agents_by_type = metrics.get('agents_by_type', {})
+                    avg_sugar_by_type = metrics.get('avg_sugar_by_type', {})
+                    self.agent_distribution_panel.draw(screen, agents_by_type, avg_sugar_by_type)
+
+            elif self.active_view == "behavior":
+                # 行为视图：Reward Trend + Policy Entropy + 动作分布
+                self._update_behavior_charts(simulation_data)
+
+                last_bottom = self.charts_top
+                for chart_id in ["reward_trend", "policy_entropy"]:
+                    chart = self.behavior_charts.get(chart_id)
+                    if chart is not None:
+                        chart.draw(screen)
+                        last_bottom = max(last_bottom, chart.rect.bottom)
+
+                if 'metrics' in simulation_data:
+                    metrics = simulation_data['metrics']
+                    action_dist = metrics.get('action_distribution_by_type', {})
+
+                    # 将动作分布面板放在行为图表下方
+                    self.action_distribution_panel.rect.y = last_bottom + 10
+                    available_height = self.control_panel.rect.bottom - self.action_distribution_panel.rect.y - 20
+                    self.action_distribution_panel.rect.height = max(140, min(220, available_height))
+
+                    self.action_distribution_panel.draw(screen, action_dist)
+
+            elif self.active_view == "debug":
+                # 调试视图：展示简单的性能信息，从 charts_top 开始绘制
+                if 'performance' in simulation_data:
+                    perf = simulation_data['performance']
+                    debug_lines = [
+                        f"FPS: {perf.get('fps', 0.0):.1f}",
+                        f"Step Time (ms): {perf.get('step_time', 0.0):.2f}",
+                        f"Agent Update Time (ms): {perf.get('agent_update_time', 0.0):.2f}",
+                        f"Memory (est. MB): {perf.get('memory_usage_mb', 0.0):.1f}",
+                    ]
+                    base_y = self.charts_top
+                    for i, line in enumerate(debug_lines):
+                        text = self.font_manager.render_text(line, 'SMALL', COLORS['TEXT_PRIMARY'])
+                        screen.blit(text, (self.control_panel.rect.x + 20, base_y + i * 22))
             
         except Exception as e:
             print(f"Visualization system drawing failed: {e}")
@@ -1657,9 +2107,95 @@ class AcademicVisualizationSystem:
                         step
                     )
     
+    def _update_behavior_charts(self, simulation_data: Dict[str, Any]) -> None:
+        """
+        更新行为视图相关图表：
+        - Reward Trend：基于训练指标中的 avg_reward / recent_reward
+        - Policy Entropy：基于当前动作分布计算离散策略熵
+        """
+        if not self.behavior_charts:
+            return
+
+        step = simulation_data.get("step_count", 0)
+        training_metrics = simulation_data.get("training_metrics", {}) or {}
+        metrics_block = simulation_data.get("metrics", {}) or {}
+        action_dist = metrics_block.get("action_distribution_by_type", {}) or {}
+
+        label_map = {
+            "iql": "IQL",
+            "independent_q_learning": "IQL",
+            "qmix": "QMIX",
+            "rule_based": "Rule-Based",
+        }
+        color_map = {
+            "iql": COLORS.get("AGENT_IQL", COLORS["CHART_LINE_2"]),
+            "independent_q_learning": COLORS.get("AGENT_IQL", COLORS["CHART_LINE_2"]),
+            "qmix": COLORS.get("AGENT_QMIX", COLORS["CHART_LINE_3"]),
+            "rule_based": COLORS.get("AGENT_RULE_BASED", COLORS["CHART_LINE_1"]),
+        }
+
+        # 1) 奖励趋势：使用 recent_reward（如无则退回 avg_reward）
+        reward_chart = self.behavior_charts.get("reward_trend")
+        if reward_chart and training_metrics:
+            for agent_type, metrics in training_metrics.items():
+                agent_label = label_map.get(agent_type, agent_type.upper())
+                if agent_label not in reward_chart.lines:
+                    color = color_map.get(agent_type, COLORS["CHART_LINE_1"])
+                    reward_chart.add_line(agent_label, color=color)
+
+                value = None
+                if "recent_reward" in metrics:
+                    value = metrics["recent_reward"]
+                elif "avg_reward" in metrics:
+                    value = metrics["avg_reward"]
+
+                if value is not None:
+                    reward_chart.add_data_point_conditional(agent_label, value, step)
+
+        # 2) 策略熵：基于当前动作分布计算 H(a | type)
+        entropy_chart = self.behavior_charts.get("policy_entropy")
+        if entropy_chart and action_dist:
+            for agent_type, counts in action_dist.items():
+                if not counts:
+                    continue
+                total = sum(int(c) for c in counts.values())
+                if total <= 0:
+                    continue
+
+                probs = []
+                for c in counts.values():
+                    c = int(c)
+                    if c > 0:
+                        probs.append(c / total)
+                if not probs:
+                    continue
+
+                entropy = 0.0
+                for p in probs:
+                    entropy -= p * math.log(p + 1e-12, 2)
+
+                agent_label = label_map.get(agent_type, agent_type.upper())
+                if agent_label not in entropy_chart.lines:
+                    color = color_map.get(agent_type, COLORS["CHART_LINE_1"])
+                    entropy_chart.add_line(agent_label, color=color)
+
+                entropy_chart.add_data_point_conditional(agent_label, entropy, step)
+    
     def handle_event(self, event: pygame.event.Event, simulation: Any) -> bool:
-        """Handle events"""
-        return self.control_panel.handle_event(event, simulation)
+        """Handle events（视图 Tab 点击 + 控制面板按钮）"""
+        try:
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_pos = event.pos
+                # 先处理视图 Tab 点击
+                for view_id, rect in self.view_tabs:
+                    if rect.collidepoint(mouse_pos):
+                        self.active_view = view_id
+                        return True
+            # 未命中 Tab，则交给控制面板处理
+            return self.control_panel.handle_event(event, simulation)
+        except Exception as e:
+            print(f"Visualization system event handling failed: {e}")
+            return False
 
 
 # Backward compatibility aliases
