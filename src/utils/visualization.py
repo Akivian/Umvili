@@ -1163,12 +1163,15 @@ class NetworkStatePanel:
                 screen.blit(empty_text, text_rect)
                 return
             
-            # 绘制每个算法的网络状态
+            # 绘制每个算法的网络状态（重新布局，充分利用垂直空间）
+            inner_left = self.rect.x + self.padding['left']
+            inner_right = self.rect.x + self.rect.width - self.padding['right']
+            inner_bottom = self.rect.y + self.rect.height - self.padding['bottom']
             y_offset = self.rect.y + self.padding['top'] + 10
-            row_height = 80
+            row_height = 100  # 每个算法一块，包含文本 + 条形图
             
             for agent_type, state in self.network_states.items():
-                if y_offset + row_height > self.rect.y + self.rect.height - self.padding['bottom']:
+                if y_offset + row_height > inner_bottom:
                     break
                 
                 # 算法标签
@@ -1178,48 +1181,9 @@ class NetworkStatePanel:
                 label_text = self.font_manager.render_text(
                     f"{agent_label} Network State", 'TINY', label_color
                 )
-                screen.blit(label_text, (self.rect.x + self.padding['left'], y_offset))
+                screen.blit(label_text, (inner_left, y_offset))
                 
-                # 策略分布条形图
-                if 'policy' in state and len(state['policy']) > 0:
-                    policy = state['policy']
-                    bar_width = 15
-                    bar_spacing = 2
-                    chart_x = self.rect.x + self.padding['left']
-                    chart_y = y_offset + 20
-                    chart_width = self.rect.width - self.padding['left'] - self.padding['right']
-                    chart_height = 30
-                    
-                    max_policy = np.max(policy) if len(policy) > 0 else 1.0
-                    
-                    for i, prob in enumerate(policy):
-                        if i * (bar_width + bar_spacing) > chart_width:
-                            break
-                        
-                        bar_height = int((prob / max_policy) * chart_height) if max_policy > 0 else 0
-                        bar_x = chart_x + i * (bar_width + bar_spacing)
-                        bar_y = chart_y + chart_height - bar_height
-                        
-                        # 使用算法颜色
-                        pygame.draw.rect(
-                            screen,
-                            label_color,
-                            (bar_x, bar_y, bar_width, bar_height)
-                        )
-                        pygame.draw.rect(
-                            screen,
-                            COLORS['PANEL_BORDER'],
-                            (bar_x, bar_y, bar_width, bar_height),
-                            1
-                        )
-                    
-                    # 策略熵值
-                    if len(policy) > 0:
-                        entropy = -np.sum(policy * np.log(policy + 1e-10))
-                        entropy_text = self.font_manager.render_text(
-                            f"Policy Entropy: {entropy:.3f}", 'TINY', COLORS['TEXT_SECONDARY']
-                        )
-                        screen.blit(entropy_text, (chart_x, chart_y + chart_height + 5))
+                stats_y = y_offset + 18
                 
                 # Q值信息
                 if 'q_values' in state and len(state['q_values']) > 0:
@@ -1233,9 +1197,59 @@ class NetworkStatePanel:
                         'TINY',
                         COLORS['TEXT_SECONDARY']
                     )
-                    screen.blit(q_info_text, (self.rect.x + self.padding['left'], y_offset + 60))
+                    screen.blit(q_info_text, (inner_left, stats_y))
+                    stats_y += 14
                 
-                y_offset += row_height + 10
+                # 策略分布条形图 + 策略熵
+                chart_top = stats_y + 4
+                chart_height = max(24, row_height - (chart_top - y_offset) - 20)
+                chart_bottom = min(y_offset + row_height - 8, chart_top + chart_height)
+                chart_height = max(16, chart_bottom - chart_top)
+                
+                if 'policy' in state and len(state['policy']) > 0:
+                    policy = state['policy']
+                    chart_x = inner_left
+                    chart_y = chart_top
+                    chart_width = inner_right - inner_left
+                    
+                    # 根据动作数自适应柱宽，避免过窄或过宽
+                    num_actions = len(policy)
+                    base_bar_width = max(4, min(20, chart_width // max(1, num_actions * 2)))
+                    bar_width = base_bar_width
+                    bar_spacing = max(2, base_bar_width // 2)
+                    
+                    max_policy = np.max(policy) if len(policy) > 0 else 1.0
+                    
+                    for i, prob in enumerate(policy):
+                        x_pos = chart_x + i * (bar_width + bar_spacing)
+                        if x_pos + bar_width > inner_right:
+                            break
+                        
+                        bar_height = int((prob / max_policy) * chart_height) if max_policy > 0 else 0
+                        bar_x = x_pos
+                        bar_y = chart_y + chart_height - bar_height
+                        
+                        pygame.draw.rect(
+                            screen,
+                            label_color,
+                            (bar_x, bar_y, bar_width, bar_height)
+                        )
+                        pygame.draw.rect(
+                            screen,
+                            COLORS['PANEL_BORDER'],
+                            (bar_x, bar_y, bar_width, bar_height),
+                            1
+                        )
+                    
+                    # 策略熵值放在条形图下方，尽量靠近相关图形
+                    if len(policy) > 0:
+                        entropy = -np.sum(policy * np.log(policy + 1e-10))
+                        entropy_text = self.font_manager.render_text(
+                            f"Policy Entropy: {entropy:.3f}", 'TINY', COLORS['TEXT_SECONDARY']
+                        )
+                        screen.blit(entropy_text, (inner_left, chart_y + chart_height + 4))
+                
+                y_offset += row_height + 6
             
         except Exception as e:
             print(f"Error drawing network state panel: {e}")
@@ -1356,10 +1370,10 @@ class ActionDistributionPanel:
                 )[:max_actions_to_show]
                 sorted_actions = sorted(top_actions)
 
-            # 左侧图例
+            # 左侧图例（使用“块状”布局，每个算法占用一块高度，避免两行文字挤在一起）
             legend_x = self.rect.x + self.padding['left']
             legend_y = self.rect.y + self.padding['top']
-            legend_line_h = 18
+            legend_block_h = 32  # 每个算法的垂直块高度（两行文字 + 间距）
             total_actions_all = sum(type_totals.values())
 
             # 预先计算每个算法的策略熵（基于动作分布的离散熵，单位 bit）
@@ -1411,26 +1425,38 @@ class ActionDistributionPanel:
 
                 main_text = f"{label}: {total} ({proportion:.1f}%){entropy_text}"
 
-                indicator_rect = pygame.Rect(legend_x, legend_y + i * legend_line_h, 10, 10)
+                base_y = legend_y + i * legend_block_h
+
+                indicator_rect = pygame.Rect(legend_x, base_y, 10, 10)
                 pygame.draw.rect(screen, color, indicator_rect)
                 pygame.draw.rect(screen, COLORS['LEGEND_BORDER'], indicator_rect, 1)
 
                 text_surface = self.font_manager.render_text(main_text, 'TINY', COLORS['TEXT_PRIMARY'])
-                screen.blit(text_surface, (legend_x + 16, legend_y - 2 + i * legend_line_h))
+                screen.blit(text_surface, (legend_x + 16, base_y - 2))
 
                 if top_actions_text:
+                    # 为避免过长字符串挤在一行，对Top‑3摘要做适度截断
+                    max_summary_len = 80
+                    summary_text = top_actions_text
+                    if len(summary_text) > max_summary_len:
+                        summary_text = summary_text[: max_summary_len - 3] + "..."
+
                     summary_surface = self.font_manager.render_text(
-                        f"Top-3 actions: {top_actions_text}", 'TINY', COLORS['TEXT_SECONDARY']
+                        f"Top-3 actions: {summary_text}", 'TINY', COLORS['TEXT_SECONDARY']
                     )
-                    screen.blit(summary_surface, (legend_x + 16, legend_y + 8 + i * legend_line_h))
+                    screen.blit(summary_surface, (legend_x + 16, base_y + 14))
+
+            # 图例区域底部位置，用于决定右侧柱状图的起始高度，避免相互遮挡
+            legend_bottom = legend_y + len(sorted_types) * legend_block_h
 
             # 右侧组合柱状图区域
             chart_left = self.rect.x + self.rect.width // 2 + 5
+            chart_top = max(self.rect.y + self.padding['top'] + 4, legend_bottom + 8)
             chart_area = pygame.Rect(
                 chart_left,
-                self.rect.y + self.padding['top'] + 4,
+                chart_top,
                 self.rect.width - (chart_left - self.rect.x) - self.padding['right'],
-                self.rect.height - self.padding['top'] - self.padding['bottom'],
+                self.rect.height - (chart_top - self.rect.y) - self.padding['bottom'],
             )
 
             num_actions = len(sorted_actions)
@@ -1704,29 +1730,43 @@ class MARLSimulationRenderer:
         screen_height = max(900, self.grid_size * self.cell_size)
         return (screen_width, screen_height)
     
-    def draw_environment(self, screen: pygame.Surface, sugar_map: np.ndarray) -> None:
-        """Draw environment with academic color scheme"""
+    def draw_environment(self, screen: pygame.Surface, env_data: Dict[str, Any]) -> None:
+        """
+        Draw environment with clear multi-resource visualization.
+        
+        绘制顺序（从底到顶）：
+        1. Sugar（绿色渐变背景）
+        2. Spice（橙色半透明覆盖，集中在特定区域）
+        3. Hazard（红色半透明完全覆盖，最上层，最明显）
+        """
+        sugar_map = env_data.get('sugar_map')
         if sugar_map is None:
             return
+        
+        spice_map = env_data.get('spice_map')
+        hazard_map = env_data.get('hazard_map')
         
         try:
             rows, cols = sugar_map.shape
             self.grid_size = rows
             
-            # Get max sugar for normalization (if needed)
+            # Get max values for normalization
             max_sugar = float(np.max(sugar_map)) if sugar_map.size > 0 else 10.0
+            max_spice = float(np.max(spice_map)) if spice_map is not None and spice_map.size > 0 else 0.0
+            max_hazard = float(np.max(hazard_map)) if hazard_map is not None and hazard_map.size > 0 else 0.0
             
-            # Draw sugar distribution with gradient
+            # 创建临时surface用于半透明叠加
+            overlay_surface = pygame.Surface((rows * self.cell_size, cols * self.cell_size))
+            overlay_surface.set_colorkey((0, 0, 0))  # 黑色作为透明色
+            
+            # Step 1: 绘制Sugar作为背景（绿色渐变）
             for x in range(rows):
                 for y in range(cols):
                     sugar = float(sugar_map[x, y])
                     if sugar <= 0:
-                        # Draw empty cell with very light background
                         color = COLORS.get('BACKGROUND', (250, 250, 250))
                     else:
-                        # Normalize sugar value for color calculation
                         normalized_sugar = sugar / max_sugar if max_sugar > 0 else 0
-                        # Scale to actual max (10.0)
                         actual_sugar = normalized_sugar * 10.0
                         color = self._get_sugar_color(actual_sugar)
                     
@@ -1738,7 +1778,67 @@ class MARLSimulationRenderer:
                     )
                     pygame.draw.rect(screen, color, rect)
             
-            # Draw subtle grid
+            # Step 2: 绘制Spice（橙色半透明覆盖，完全填充格子）
+            if spice_map is not None and max_spice > 0:
+                overlay_surface.fill((0, 0, 0))  # 清空overlay
+                for x in range(rows):
+                    for y in range(cols):
+                        spice = float(spice_map[x, y])
+                        if spice <= 0:
+                            continue
+                        intensity = min(1.0, spice / max_spice)
+                        # 金黄色系，体现珍贵和稀缺（明亮、鲜艳）
+                        # 使用明亮的金黄色：从淡金色到深金色
+                        gold_base = (255, 215, 0)  # 标准金黄色
+                        # 根据强度调整：强度越高，颜色越深、越接近纯金
+                        color = (
+                            int(gold_base[0] * (0.7 + 0.3 * intensity)),  # 保持高亮度
+                            int(gold_base[1] * (0.6 + 0.4 * intensity)),  # 金黄色
+                            int(gold_base[2] * (0.3 + 0.7 * intensity))   # 从淡黄到深金
+                        )
+                        rect = pygame.Rect(
+                            x * self.cell_size,
+                            y * self.cell_size,
+                            self.cell_size,
+                            self.cell_size
+                        )
+                        pygame.draw.rect(overlay_surface, color, rect)
+                
+                # 使用blend模式叠加spice（半透明效果）
+                overlay_surface.set_alpha(180)  # 70%不透明度
+                screen.blit(overlay_surface, (0, 0))
+            
+            # Step 3: 绘制Hazard（红色半透明完全覆盖，最明显）
+            if hazard_map is not None and max_hazard > 0:
+                overlay_surface.fill((0, 0, 0))  # 清空overlay
+                for x in range(rows):
+                    for y in range(cols):
+                        hazard = float(hazard_map[x, y])
+                        if hazard <= 0:
+                            continue
+                        intensity = min(1.0, hazard / max_hazard)
+                        # 深血红色系，危险区域用深血红色完全覆盖，营造更危险的视觉效果
+                        # 强度越高，颜色越深（从深血红色到接近黑色）
+                        blood_red_base = (139, 0, 0)  # 深血红色 (DarkRed)
+                        # 根据强度调整：高强度时更接近黑色，低强度时保持深血红色
+                        color = (
+                            int(blood_red_base[0] * (1.0 - intensity * 0.3)),  # 高强度时更暗
+                            int(blood_red_base[1]),  # 保持0，纯血红色
+                            int(blood_red_base[2])   # 保持0，纯血红色
+                        )
+                        rect = pygame.Rect(
+                            x * self.cell_size,
+                            y * self.cell_size,
+                            self.cell_size,
+                            self.cell_size
+                        )
+                        pygame.draw.rect(overlay_surface, color, rect)
+                
+                # 使用更强的半透明效果叠加hazard（更明显）
+                overlay_surface.set_alpha(200)  # 78%不透明度，比spice更明显
+                screen.blit(overlay_surface, (0, 0))
+            
+            # Step 4: 绘制网格线（最上层，确保可见）
             self._draw_grid(screen, rows, cols)
             
         except Exception as e:
@@ -2469,21 +2569,23 @@ class AcademicVisualizationSystem:
             # Clear screen with academic background
             screen.fill(COLORS['BACKGROUND'])
             
-            # Draw environment - ensure we get the actual sugar_map
+            # Draw environment - multi-resource aware
             env_x, env_y = 0, 0
             if 'environment' in simulation_data:
                 env_data = simulation_data['environment']
+                # 确保 sugar_map 存在（用于尺寸推断），其余资源图在 renderer 内部做兼容处理
                 sugar_map = env_data.get('sugar_map')
-                if sugar_map is not None:
-                    # Ensure it's a numpy array
-                    if not isinstance(sugar_map, np.ndarray):
-                        sugar_map = np.array(sugar_map)
-                    self.simulation_renderer.draw_environment(screen, sugar_map)
-                else:
-                    # Fallback: create empty map
+                if sugar_map is None:
                     grid_size = env_data.get('grid_size', self.grid_size)
                     sugar_map = np.zeros((grid_size, grid_size))
-                    self.simulation_renderer.draw_environment(screen, sugar_map)
+                    env_data = dict(env_data)
+                    env_data['sugar_map'] = sugar_map
+                else:
+                    if not isinstance(sugar_map, np.ndarray):
+                        sugar_map = np.array(sugar_map)
+                        env_data = dict(env_data)
+                        env_data['sugar_map'] = sugar_map
+                self.simulation_renderer.draw_environment(screen, env_data)
             
             # Draw agents - ensure we have valid agent data
             if 'agents' in simulation_data:

@@ -21,6 +21,7 @@ from src.core.agent_base import AgentStatus
 class RewardComponent(Enum):
     """Reward component types"""
     SUGAR_COLLECTION = "sugar_collection"
+    SPICE_COLLECTION = "spice_collection"  # 新增：spice收集奖励
     EXPLORATION = "exploration"
     SURVIVAL = "survival"
     EFFICIENCY = "efficiency"
@@ -36,6 +37,9 @@ class RewardConfig:
     # Sugar collection rewards
     sugar_collection_multiplier: float = 2.0
     sugar_consumption_penalty: float = 0.1
+    
+    # Spice collection rewards (higher multiplier to make it more attractive)
+    spice_collection_multiplier: float = 5.0  # 比sugar高2.5倍，体现稀缺性和珍贵性
     
     # Exploration rewards
     exploration_reward: float = 0.5
@@ -106,7 +110,8 @@ class RewardCalculator:
         total_collected: float,
         visited_positions: set,
         environment_size: int,
-        component_breakdown: bool = False
+        component_breakdown: bool = False,
+        spice_collected: float = 0.0  # 新增：本次收集的spice量
     ) -> Dict[str, Any]:
         """
         Calculate reward for an agent step
@@ -129,16 +134,25 @@ class RewardCalculator:
         reward = 0.0
         components = {}
         
-        # 1. Sugar collection reward (most important)
+        # 1. Sugar collection reward
         sugar_change = current_sugar - prev_sugar
         if sugar_change > 0:
-            sugar_reward = sugar_change * self.config.sugar_collection_multiplier
-            reward += sugar_reward
-            components[RewardComponent.SUGAR_COLLECTION] = sugar_reward
+            # 从sugar_change中减去spice部分（因为spice也会增加sugar）
+            actual_sugar_change = sugar_change - spice_collected
+            if actual_sugar_change > 0:
+                sugar_reward = actual_sugar_change * self.config.sugar_collection_multiplier
+                reward += sugar_reward
+                components[RewardComponent.SUGAR_COLLECTION] = sugar_reward
         elif sugar_change < 0:
             sugar_penalty = sugar_change * self.config.sugar_consumption_penalty
             reward += sugar_penalty
             components[RewardComponent.SUGAR_COLLECTION] = sugar_penalty
+        
+        # 1.5. Spice collection reward (high value, rare resource)
+        if spice_collected > 0:
+            spice_reward = spice_collected * self.config.spice_collection_multiplier
+            reward += spice_reward
+            components[RewardComponent.SPICE_COLLECTION] = spice_reward
         
         # 2. Exploration reward
         if self.config.exploration_enabled:

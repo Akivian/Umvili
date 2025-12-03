@@ -331,12 +331,16 @@ class QMIXAgent(LearningAgent):
         current_pos = (self.x, self.y)
         
         # 使用统一的奖励计算器
+        # 获取本次收集的spice量（从agent的harvest记录中）
+        spice_collected = getattr(self, '_last_harvest_spice', 0.0)
+        
         reward_result = self.reward_calculator.calculate_reward(
             prev_sugar=prev_sugar,
             current_sugar=self.sugar,
             prev_position=prev_position,
             current_position=current_pos,
             status=self.status,
+            spice_collected=spice_collected,
             age=self.age,
             total_collected=self.total_collected,
             visited_positions=self.visited_positions,
