@@ -286,11 +286,17 @@ class MARLApplication:
             self.simulation.grid_size = grid_size  # 保持模拟对象内部一致
 
             simulation_width = grid_size * cell_size
-            panel_width = 400
+            # 扩展右侧面板宽度，以容纳更多图表
+            panel_width = 500
+            
+            # 扩展窗口高度，确保所有图表和控制面板完全显示
+            # - simulation_width 对应左侧环境区域高度
+            # - 额外增加 300-400 像素用于右侧多行图表和分布面板
+            screen_height = max(1000, simulation_width + 300)
             
             self.visualization_system = ModernVisualizationSystem(
                 screen_width=simulation_width + panel_width + 20,
-                screen_height=max(800, simulation_width),
+                screen_height=screen_height,
                 grid_size=grid_size,
                 cell_size=cell_size
             )
