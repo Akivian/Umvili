@@ -40,6 +40,8 @@ class SimulationMetrics:
     agent_diversity: float = 0.0
     agents_by_type: Dict[str, int] = field(default_factory=dict)
     avg_sugar_by_type: Dict[str, float] = field(default_factory=dict)
+    # 按类型统计的动作分布：{agent_type: {action_idx: count}}
+    action_distribution_by_type: Dict[str, Dict[int, int]] = field(default_factory=dict)
 
 
 @dataclass
@@ -54,6 +56,9 @@ class TrainingMetrics:
     sample_count: int = 0
     recent_loss: float = 0.0
     recent_q_value: float = 0.0
+    # 奖励相关统计（用于 Reward Trend 可视化）
+    avg_reward: float = 0.0
+    recent_reward: float = 0.0
 
 
 @dataclass
@@ -417,6 +422,8 @@ class MARLSimulation:
         
         # 类型统计和多样性
         self._calculate_diversity_metrics(metrics, agents)
+        # 动作分布统计
+        self._collect_action_distribution(metrics, agents)
         
         # 收集训练指标
         self._collect_training_metrics()
@@ -453,6 +460,43 @@ class MARLSimulation:
                 diversity -= proportion * np.log(proportion)
         
         metrics.agent_diversity = diversity
+
+    def _collect_action_distribution(self, metrics: SimulationMetrics, agents: List[BaseAgent]) -> None:
+        """
+        统计按类型划分的动作分布（快照级，不追踪时间序列）。
+        用于行为可视化中的动作频率面板。
+        """
+        action_dist: Dict[str, Dict[int, int]] = {}
+
+        for agent in agents:
+            # 仅统计存活智能体的当前动作倾向
+            if agent.status != AgentStatus.ALIVE:
+                continue
+
+            agent_type = agent.agent_type.value
+
+            # IQL 使用 last_action_idx，QMIX 使用 last_action（索引）
+            action_idx = None
+            if hasattr(agent, "last_action_idx"):
+                action_idx = getattr(agent, "last_action_idx")
+            elif hasattr(agent, "last_action"):
+                action_idx = getattr(agent, "last_action")
+
+            # 过滤无效动作值
+            if action_idx is None:
+                continue
+            try:
+                action_idx = int(action_idx)
+            except (TypeError, ValueError):
+                continue
+            if action_idx < 0:
+                continue
+
+            if agent_type not in action_dist:
+                action_dist[agent_type] = {}
+            action_dist[agent_type][action_idx] = action_dist[agent_type].get(action_idx, 0) + 1
+
+        metrics.action_distribution_by_type = action_dist
     
     def _collect_training_metrics(self) -> None:
         """收集训练指标"""
@@ -475,7 +519,28 @@ class MARLSimulation:
                 if agent_type not in type_metrics:
                     type_metrics[agent_type] = []
                 
+                # 基础训练信息（loss / q / td / epsilon 等）
                 type_metrics[agent_type].append(training_info)
+
+                # 额外：从智能体内部的 training_stats 中提取奖励信息
+                # 这样可以在不修改具体 Agent 实现的前提下，为可视化提供 Reward Trend 数据
+                stats = getattr(agent, 'training_stats', None)
+                if isinstance(stats, dict):
+                    rewards = stats.get('rewards') or stats.get('reward_history')
+                    if rewards:
+                        try:
+                            rewards_arr = np.array(rewards, dtype=float)
+                            if rewards_arr.size > 0:
+                                recent_reward = float(rewards_arr[-1])
+                                # 使用一个滑动窗口计算平均奖励，避免过长历史导致平滑过度
+                                window = rewards_arr[-100:] if rewards_arr.size > 100 else rewards_arr
+                                avg_reward = float(window.mean())
+                                type_metrics[agent_type].append({
+                                    'avg_reward': avg_reward,
+                                    'recent_reward': recent_reward,
+                                })
+                        except Exception as e:
+                            logging.debug(f"处理智能体 {agent.agent_id} 奖励统计失败: {e}")
             except Exception as e:
                 logging.debug(f"收集智能体 {agent.agent_id} 训练信息失败: {e}")
                 continue
@@ -516,6 +581,21 @@ class MARLSimulation:
                 for info in info_list
             ]
             training_steps = [info.get('training_steps', 0) for info in info_list]
+            # 奖励统计（平均奖励 + 最近一次奖励）
+            reward_values = [
+                info.get('avg_reward', info.get('recent_reward', 0.0))
+                for info in info_list
+                if ('avg_reward' in info) or ('recent_reward' in info)
+            ]
+
+            avg_reward = float(np.mean(reward_values)) if reward_values else 0.0
+            recent_reward = 0.0
+            if reward_values:
+                # 从 info_list 逆序找到最近一条包含奖励信息的记录
+                for info in reversed(info_list):
+                    if ('recent_reward' in info) or ('avg_reward' in info):
+                        recent_reward = float(info.get('recent_reward', info.get('avg_reward', 0.0)))
+                        break
             
             # 获取最近的值（用于实时显示）
             recent_loss = info_list[-1].get('avg_loss', info_list[-1].get('recent_loss', 0.0)) if info_list else 0.0
@@ -530,7 +610,9 @@ class MARLSimulation:
                 training_steps=max(training_steps) if training_steps else 0,
                 sample_count=len(info_list),
                 recent_loss=recent_loss,
-                recent_q_value=recent_q_value
+                recent_q_value=recent_q_value,
+                avg_reward=avg_reward,
+                recent_reward=recent_reward,
             )
             
             self.training_metrics[agent_type] = metrics
@@ -580,7 +662,8 @@ class MARLSimulation:
             'total_environment_sugar': metrics.total_environment_sugar,
             'agent_diversity': metrics.agent_diversity,
             'agents_by_type': metrics.agents_by_type,
-            'avg_sugar_by_type': metrics.avg_sugar_by_type
+            'avg_sugar_by_type': metrics.avg_sugar_by_type,
+            'action_distribution_by_type': metrics.action_distribution_by_type,
         }
     
     def _get_environment_data(self) -> Dict[str, Any]:
@@ -655,7 +738,9 @@ class MARLSimulation:
                 'training_steps': metrics.training_steps,
                 'sample_count': metrics.sample_count,
                 'recent_loss': metrics.recent_loss,
-                'recent_q_value': metrics.recent_q_value
+                'recent_q_value': metrics.recent_q_value,
+                'avg_reward': metrics.avg_reward,
+                'recent_reward': metrics.recent_reward,
             }
         return serialized
     

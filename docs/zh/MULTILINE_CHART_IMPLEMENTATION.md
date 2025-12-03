@@ -173,33 +173,13 @@ self.lines: Dict[str, Dict[str, Any]] = {
    - 技术细节
    - API参考
 
-## 🚀 下一步
+## 🚀 集成状态
 
-### 在可视化系统中集成
+`MultiLineChart` 已经在 `AcademicVisualizationSystem` 中**完全集成并投入使用**：
 
-1. **在 `AcademicVisualizationSystem` 中添加训练图表**
-   ```python
-   def _initialize_training_charts(self, ...):
-       charts = {}
-       charts['loss'] = MultiLineChart(...)
-       charts['q_value'] = MultiLineChart(...)
-       return charts
-   ```
-
-2. **更新图表数据**
-   ```python
-   def _update_training_charts(self, simulation_data):
-       training_metrics = simulation_data.get('training_metrics', {})
-       # 更新损失和Q值图表
-   ```
-
-3. **在绘制循环中调用**
-   ```python
-   def draw(self, screen, simulation_data):
-       # ... 现有绘制代码 ...
-       for chart in self.training_charts.values():
-           chart.draw(screen)
-   ```
+- 常规指标图表（之前的单线 `RealTimeChart`）全部迁移到 `MultiLineChart`，保持单线显示。
+- 新增 4 张训练图表（训练损失 / Q值趋势 / TD 误差 / 探索率），使用 `MultiLineChart` 多线显示 IQL / QMIX 等算法的训练过程。
+- 更新逻辑集中在 `AcademicVisualizationSystem._update_training_charts()` 内，根据 `simulation_data['training_metrics']` 实时刷新数据。
 
 ## ✨ 特性亮点
 
