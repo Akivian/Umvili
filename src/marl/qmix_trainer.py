@@ -64,6 +64,9 @@ class QMIXTrainer:
             capacity=self.config.get('replay_buffer_size', 10000)
         )
         
+        # 将网络移动到设备（必须在网络初始化之后）
+        self._move_networks_to_device()
+        
         # 智能体经验临时存储
         self.agent_experiences: Dict[int, Dict[str, Any]] = {}
         self.global_state_history: deque = deque(maxlen=1000)
@@ -88,7 +91,6 @@ class QMIXTrainer:
 
         # 设备配置
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self._move_networks_to_device()
 
         self.logger.info(f"QMIX训练器初始化: {num_agents}个智能体, 设备: {self.device}")
     
@@ -133,10 +135,15 @@ class QMIXTrainer:
 
     def _move_networks_to_device(self) -> None:
         """将网络移动到指定设备"""
+        # 确保网络已初始化
+        if not hasattr(self, 'q_network') or self.q_network is None:
+            raise RuntimeError("网络未初始化，无法移动到设备")
+        
         self.q_network.to(self.device)
         self.target_q_network.to(self.device)
         self.mixing_network.to(self.device)
         self.target_mixing_network.to(self.device)
+        
         # 该方法在 __init__ 早期就会被调用，因此要防御性地访问 logger
         logger = getattr(self, "logger", None)
         if logger is not None:
@@ -157,19 +164,25 @@ class QMIXTrainer:
                 - global_state: 全局状态
                 - next_global_state: 下一全局状态
         """
-        agent_id = experience['agent_id']
-        
-        # 验证经验数据
-        if not self._validate_experience(experience):
-            self.logger.warning(f"智能体 {agent_id} 的经验验证失败，已跳过")
-            return
-        
-        # 存储个体经验
-        self.agent_experiences[agent_id] = experience
-        
-        # 如果收集到所有智能体的经验，形成联合经验
-        if len(self.agent_experiences) == self.num_agents:
-            self._form_joint_experience()
+        try:
+            agent_id = experience.get('agent_id')
+            if agent_id is None:
+                self.logger.error("经验缺少agent_id字段")
+                return
+            
+            # 验证经验数据
+            if not self._validate_experience(experience):
+                self.logger.warning(f"智能体 {agent_id} 的经验验证失败，已跳过")
+                return
+            
+            # 存储个体经验（覆盖旧的经验，确保使用最新的）
+            self.agent_experiences[agent_id] = experience
+            
+            # 如果收集到所有智能体的经验，形成联合经验
+            if len(self.agent_experiences) == self.num_agents:
+                self._form_joint_experience()
+        except Exception as e:
+            self.logger.error(f"存储智能体经验失败: {e}", exc_info=True)
 
     def _validate_experience(self, experience: Dict[str, Any]) -> bool:
         """
@@ -181,7 +194,7 @@ class QMIXTrainer:
         Returns:
             是否有效
         """
-        required_fields = ['state', 'action', 'reward', 'next_state', 'done', 'global_state']
+        required_fields = ['state', 'action', 'reward', 'next_state', 'done']
         
         # 检查必需字段
         for field in required_fields:
@@ -189,14 +202,43 @@ class QMIXTrainer:
                 self.logger.error(f"经验缺少必需字段: {field}")
                 return False
         
-        # 检查状态维度
-        if experience['state'].shape != (self.state_dim,):
-            self.logger.error(f"状态维度错误: {experience['state'].shape} != ({self.state_dim},)")
+        # 检查状态是否是numpy数组
+        if not isinstance(experience['state'], np.ndarray):
+            self.logger.error(f"状态不是numpy数组: {type(experience['state'])}")
             return False
         
-        # 检查动作范围
-        if not (0 <= experience['action'] < self.action_dim):
-            self.logger.error(f"动作超出范围: {experience['action']} not in [0, {self.action_dim})")
+        # 检查状态维度（允许1D数组）
+        state_shape = experience['state'].shape
+        if len(state_shape) != 1:
+            self.logger.error(f"状态应该是1D数组，得到形状: {state_shape}")
+            return False
+        
+        if state_shape[0] != self.state_dim:
+            # 允许维度不匹配，但会记录警告（在_form_joint_experience中修复）
+            self.logger.debug(
+                f"状态维度不匹配: {state_shape[0]} != {self.state_dim}，"
+                f"将在形成联合经验时修复"
+            )
+        
+        # 检查动作类型和范围
+        action = experience['action']
+        if not isinstance(action, (int, np.integer)):
+            try:
+                action = int(action)
+            except (ValueError, TypeError):
+                self.logger.error(f"动作无法转换为整数: {action}")
+                return False
+        
+        if not (0 <= action < self.action_dim):
+            self.logger.warning(
+                f"动作超出范围: {action} not in [0, {self.action_dim})，"
+                f"将裁剪到有效范围"
+            )
+            experience['action'] = max(0, min(int(action), self.action_dim - 1))
+        
+        # 检查next_state
+        if not isinstance(experience['next_state'], np.ndarray):
+            self.logger.error(f"下一状态不是numpy数组: {type(experience['next_state'])}")
             return False
         
         return True
@@ -229,8 +271,15 @@ class QMIXTrainer:
             agent_ids = sorted(self.agent_experiences.keys())
             
             # 检查是否所有智能体都有经验
+            # 注意：如果智能体死亡，可能无法收集到所有智能体的经验
+            # 在这种情况下，我们仍然可以形成部分联合经验，或者跳过
             if len(agent_ids) != self.num_agents:
-                self.logger.warning(f"智能体经验不完整: {len(agent_ids)}/{self.num_agents}")
+                self.logger.warning(
+                    f"智能体经验不完整: {len(agent_ids)}/{self.num_agents}。"
+                    f"可能有些智能体已死亡或未更新。跳过此次联合经验形成。"
+                )
+                # 清空当前经验，等待下一轮
+                self.agent_experiences.clear()
                 return
             
             # 提取联合经验组件
@@ -240,6 +289,30 @@ class QMIXTrainer:
             
             for agent_id in agent_ids:
                 exp = self.agent_experiences[agent_id]
+                
+                # 验证经验数据
+                if not isinstance(exp['state'], np.ndarray):
+                    self.logger.error(f"智能体 {agent_id} 的状态不是numpy数组")
+                    self.agent_experiences.clear()
+                    return
+                
+                # 确保状态维度正确
+                if len(exp['state']) != self.state_dim:
+                    self.logger.warning(
+                        f"智能体 {agent_id} 状态维度不匹配: "
+                        f"{len(exp['state'])} != {self.state_dim}，尝试修复"
+                    )
+                    # 修复状态维度
+                    if len(exp['state']) > self.state_dim:
+                        exp['state'] = exp['state'][:self.state_dim]
+                        exp['next_state'] = exp['next_state'][:self.state_dim] if len(exp['next_state']) > self.state_dim else exp['next_state']
+                    else:
+                        padding = np.zeros(self.state_dim - len(exp['state']), dtype=np.float32)
+                        exp['state'] = np.concatenate([exp['state'], padding])
+                        if len(exp['next_state']) < self.state_dim:
+                            next_padding = np.zeros(self.state_dim - len(exp['next_state']), dtype=np.float32)
+                            exp['next_state'] = np.concatenate([exp['next_state'], next_padding])
+                
                 states.append(exp['state'])
                 actions.append(exp['action'])
                 rewards.append(exp['reward'])
@@ -248,8 +321,24 @@ class QMIXTrainer:
                 
                 # 使用第一个智能体的全局状态（假设所有智能体相同）
                 if global_state is None:
-                    global_state = exp['global_state']
+                    global_state = exp.get('global_state')
                     next_global_state = exp.get('next_global_state', global_state)  # 后备
+                    
+                    # 验证全局状态
+                    if global_state is not None and len(global_state) != self.state_dim:
+                        self.logger.warning(
+                            f"全局状态维度不匹配: {len(global_state)} != {self.state_dim}，尝试修复"
+                        )
+                        if len(global_state) > self.state_dim:
+                            global_state = global_state[:self.state_dim]
+                            if next_global_state is not None and len(next_global_state) > self.state_dim:
+                                next_global_state = next_global_state[:self.state_dim]
+                        else:
+                            padding = np.zeros(self.state_dim - len(global_state), dtype=np.float32)
+                            global_state = np.concatenate([global_state, padding])
+                            if next_global_state is not None and len(next_global_state) < self.state_dim:
+                                next_padding = np.zeros(self.state_dim - len(next_global_state), dtype=np.float32)
+                                next_global_state = np.concatenate([next_global_state, next_padding])
             
             # 如果没有全局状态，使用当前存储的
             if global_state is None and self.current_global_state is not None:
@@ -321,12 +410,51 @@ class QMIXTrainer:
             
             batch_size = states.size(0)
             
+            # 验证批次维度
+            if states.dim() != 3 or states.size(1) != self.num_agents or states.size(2) != self.state_dim:
+                self.logger.error(
+                    f"状态批次维度错误: 期望 [batch_size, {self.num_agents}, {self.state_dim}], "
+                    f"得到 {list(states.shape)}"
+                )
+                return None
+            
+            if actions.dim() != 2 or actions.size(1) != self.num_agents:
+                self.logger.error(
+                    f"动作批次维度错误: 期望 [batch_size, {self.num_agents}], "
+                    f"得到 {list(actions.shape)}"
+                )
+                return None
+            
+            if rewards.dim() != 2 or rewards.size(1) != self.num_agents:
+                self.logger.error(
+                    f"奖励批次维度错误: 期望 [batch_size, {self.num_agents}], "
+                    f"得到 {list(rewards.shape)}"
+                )
+                return None
+            
+            if next_states.dim() != 3 or next_states.size(1) != self.num_agents or next_states.size(2) != self.state_dim:
+                self.logger.error(
+                    f"下一状态批次维度错误: 期望 [batch_size, {self.num_agents}, {self.state_dim}], "
+                    f"得到 {list(next_states.shape)}"
+                )
+                return None
+            
+            if global_states.dim() != 2 or global_states.size(1) != self.state_dim:
+                self.logger.error(
+                    f"全局状态批次维度错误: 期望 [batch_size, {self.state_dim}], "
+                    f"得到 {list(global_states.shape)}"
+                )
+                return None
+            
             # === 计算当前Q值 ===
             current_q_values = []
             for agent_idx in range(self.num_agents):
                 # 获取每个智能体的状态和动作
                 agent_states = states[:, agent_idx, :]  # [batch_size, state_dim]
                 agent_actions = actions[:, agent_idx]  # [batch_size]
+                
+                # 确保动作在有效范围内
+                agent_actions = torch.clamp(agent_actions, 0, self.action_dim - 1)
                 
                 # 计算当前Q值
                 agent_q = self.q_network(agent_states)  # [batch_size, action_dim]
@@ -366,7 +494,23 @@ class QMIXTrainer:
             
             # === 计算损失 ===
             td_errors = (target_q_tot - current_q_tot).abs().detach().cpu().numpy()
-            weighted_loss = (weights * self.loss_fn(current_q_tot, target_q_tot)).mean()
+            
+            # 确保weights是1D张量
+            if weights.dim() > 1:
+                weights = weights.squeeze()
+            if weights.dim() == 0:
+                weights = weights.unsqueeze(0)
+            
+            # 确保weights和loss的维度匹配
+            if weights.size(0) != batch_size:
+                self.logger.warning(
+                    f"权重维度不匹配: {weights.size(0)} != {batch_size}，使用均匀权重"
+                )
+                weights = torch.ones(batch_size, device=self.device)
+            
+            # 计算加权损失
+            loss_per_sample = self.loss_fn(current_q_tot, target_q_tot)
+            weighted_loss = (weights * loss_per_sample).mean()
             
             # === 反向传播 ===
             self.optimizer.zero_grad()
@@ -381,6 +525,15 @@ class QMIXTrainer:
             self.optimizer.step()
             
             # === 更新优先级 ===
+            # 确保td_errors是列表格式
+            if isinstance(td_errors, np.ndarray):
+                if td_errors.ndim == 0:
+                    td_errors = [float(td_errors)]
+                else:
+                    td_errors = td_errors.tolist()
+            elif not isinstance(td_errors, list):
+                td_errors = [float(td_errors)]
+            
             self.replay_buffer.update_priorities(batch['indices'], td_errors)
             
             # === 定期更新目标网络 ===

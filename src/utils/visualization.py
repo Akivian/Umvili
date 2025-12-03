@@ -753,7 +753,7 @@ class ActionDistributionPanel:
         }
 
     面板设计：
-    - 左侧：图例（算法类型 + 总计动作数 + 全局占比 + 策略熵）
+    - 左侧：图例（算法类型 + 总计动作数 + 全局占比 + 策略熵 + Top‑3 actions）
     - 右侧：按动作索引分组的组合柱状图，每个动作组内分算法类型绘制，
       使用「相对频率」而非绝对次数，突出策略偏好。
     """
@@ -761,7 +761,7 @@ class ActionDistributionPanel:
     def __init__(self, x: int, y: int, width: int, height: int, font_manager: AcademicFontManager):
         self.rect = pygame.Rect(x, y, width, height)
         self.font_manager = font_manager
-        self.padding = {'left': 12, 'right': 12, 'top': 26, 'bottom': 20}
+        self.padding = {'left': 12, 'right': 12, 'top': 32, 'bottom': 28}
 
         self.agent_type_colors = {
             'iql': COLORS['AGENT_IQL'],
@@ -776,15 +776,43 @@ class ActionDistributionPanel:
             'rule_based': 'Rule-Based',
         }
 
+        # 默认的离散动作语义映射（可根据具体环境在后续迭代中扩展 / 替换）
+        # 这里只提供简短的英文标签，避免中文渲染问题。
+        self.action_semantic_map: Dict[int, str] = {
+            0: "Move Up",
+            1: "Move Right",
+            2: "Collect",
+            3: "Move Left",
+            4: "Move Down",
+            5: "Stay",
+            6: "Explore",
+            7: "Share",
+        }
+
+    def _format_action_label(self, action_idx: int) -> str:
+        """构造带语义的动作标签，例如 'A0: Move Up'"""
+        name = self.action_semantic_map.get(action_idx)
+        if name:
+            return f"A{action_idx}: {name}"
+        return f"A{action_idx}"
+
     def draw(self, screen: pygame.Surface, action_dist: Dict[str, Dict[int, int]]) -> None:
         try:
             pygame.draw.rect(screen, COLORS['CHART_BG'], self.rect)
             pygame.draw.rect(screen, COLORS['PANEL_BORDER'], self.rect, 1)
 
+            # 标题 + 简短说明：一眼看出在展示什么
             title_surface = self.font_manager.render_text(
                 "Action Distribution (per algorithm)", 'SMALL', COLORS['TEXT_PRIMARY']
             )
-            screen.blit(title_surface, (self.rect.x + 5, self.rect.y + 5))
+            screen.blit(title_surface, (self.rect.x + 5, self.rect.y + 4))
+
+            subtitle_surface = self.font_manager.render_text(
+                "Each group = one discrete action; bar height = relative selection frequency per algorithm.",
+                'TINY',
+                COLORS['TEXT_SECONDARY'],
+            )
+            screen.blit(subtitle_surface, (self.rect.x + 5, self.rect.y + 18))
 
             if not action_dist:
                 empty_text = self.font_manager.render_text("No action data", 'TINY', COLORS['TEXT_MUTED'])
@@ -860,14 +888,41 @@ class ActionDistributionPanel:
                 entropy_text = ""
                 if agent_type in entropies:
                     entropy_text = f", H={entropies[agent_type]:.2f}"
-                text = f"{label}: {total} ({proportion:.1f}%){entropy_text}"
+
+                # 计算该算法下最常用的 Top‑3 动作（按相对频率）
+                counts = action_dist.get(agent_type, {})
+                top_actions_text = ""
+                if counts and total > 0:
+                    # (action_idx, freq) 按 freq 降序排序
+                    freqs = []
+                    for idx, c in counts.items():
+                        c_int = int(c)
+                        if c_int <= 0:
+                            continue
+                        freqs.append((idx, c_int / total))
+                    freqs.sort(key=lambda kv: kv[1], reverse=True)
+                    if freqs:
+                        top_k = freqs[:3]
+                        parts = []
+                        for a_idx, f in top_k:
+                            label_str = self._format_action_label(a_idx)
+                            parts.append(f"{label_str} ({f*100:.1f}%)")
+                        top_actions_text = "; ".join(parts)
+
+                main_text = f"{label}: {total} ({proportion:.1f}%){entropy_text}"
 
                 indicator_rect = pygame.Rect(legend_x, legend_y + i * legend_line_h, 10, 10)
                 pygame.draw.rect(screen, color, indicator_rect)
                 pygame.draw.rect(screen, COLORS['LEGEND_BORDER'], indicator_rect, 1)
 
-                text_surface = self.font_manager.render_text(text, 'TINY', COLORS['TEXT_PRIMARY'])
+                text_surface = self.font_manager.render_text(main_text, 'TINY', COLORS['TEXT_PRIMARY'])
                 screen.blit(text_surface, (legend_x + 16, legend_y - 2 + i * legend_line_h))
+
+                if top_actions_text:
+                    summary_surface = self.font_manager.render_text(
+                        f"Top-3 actions: {top_actions_text}", 'TINY', COLORS['TEXT_SECONDARY']
+                    )
+                    screen.blit(summary_surface, (legend_x + 16, legend_y + 8 + i * legend_line_h))
 
             # 右侧组合柱状图区域
             chart_left = self.rect.x + self.rect.width // 2 + 5
@@ -907,6 +962,15 @@ class ActionDistributionPanel:
             if max_value <= 0:
                 return
 
+            # 在柱状图区绘制简单的 Y 轴参考线（0%、50%、100%），帮助理解“高度代表频率”
+            for frac, label in [(0.0, "0%"), (0.5, "50%"), (1.0, "100%")]:
+                y = chart_area.bottom - int(frac * chart_area.height)
+                color = COLORS['GRID_MINOR'] if frac not in (0.0, 1.0) else COLORS['GRID_MAJOR']
+                pygame.draw.line(screen, color, (chart_area.x, y), (chart_area.right, y), 1)
+
+                tick_text = self.font_manager.render_text(label, 'TINY', COLORS['TEXT_SECONDARY'])
+                screen.blit(tick_text, (chart_area.x - 28, y - 6))
+
             # 为每个动作索引画一组条形
             for action_i, action_idx in enumerate(sorted_actions):
                 group_x_center = chart_area.x + (action_i + 0.5) * group_width
@@ -934,10 +998,28 @@ class ActionDistributionPanel:
                     pygame.draw.rect(screen, color, bar_rect)
                     pygame.draw.rect(screen, COLORS['PANEL_BORDER'], bar_rect, 1)
 
-                # 在组底部标记动作索引
-                idx_text = self.font_manager.render_text(str(action_idx), 'TINY', COLORS['TEXT_SECONDARY'])
-                idx_rect = idx_text.get_rect(center=(group_x_center, chart_area.bottom + 10))
+                # 在组底部标记动作索引 + 简短语义
+                idx_label = self._format_action_label(action_idx)
+                idx_text = self.font_manager.render_text(idx_label, 'TINY', COLORS['TEXT_SECONDARY'])
+                idx_rect = idx_text.get_rect(center=(group_x_center, chart_area.bottom + 8))
                 screen.blit(idx_text, idx_rect)
+
+            # X / Y 轴含义说明
+            axis_x_text = self.font_manager.render_text(
+                "Discrete action IDs A0, A1, A2, ... (with semantics)", 'TINY', COLORS['TEXT_MUTED']
+            )
+            screen.blit(
+                axis_x_text,
+                (chart_area.x, self.rect.bottom - self.padding['bottom'] + 10),
+            )
+
+            axis_y_text = self.font_manager.render_text(
+                "Relative frequency (selection ratio within each algorithm)", 'TINY', COLORS['TEXT_MUTED']
+            )
+            screen.blit(
+                axis_y_text,
+                (chart_area.x - 4, chart_area.y - 16),
+            )
 
         except Exception as e:
             print(f"Action distribution panel drawing failed: {e}")

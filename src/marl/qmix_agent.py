@@ -370,57 +370,83 @@ class QMIXAgent(LearningAgent):
         Returns:
             处理后的状态向量
         """
-        features = []
+        try:
+            features = []
+            
+            # 1. 局部视野特征（糖分布）
+            if hasattr(observation, 'local_view') and observation.local_view is not None:
+                local_view = observation.local_view.flatten()
+                # 归一化局部视野（使用默认最大值，如果配置中没有）
+                max_sugar = getattr(self.config, 'max_sugar', 10.0)
+                if max_sugar <= 0:
+                    max_sugar = 1.0
+                local_view = local_view / max_sugar
+                # 检查NaN和Inf
+                local_view = np.nan_to_num(local_view, nan=0.0, posinf=1.0, neginf=0.0)
+                features.extend(local_view)
+            else:
+                # 如果local_view不存在，使用零向量
+                view_size = (self.vision_range * 2 + 1) ** 2
+                features.extend([0.0] * view_size)
         
-        # 1. 局部视野特征（糖分布）
-        local_view = observation.local_view.flatten()
-        # 归一化局部视野（使用默认最大值，如果配置中没有）
-        max_sugar = getattr(self.config, 'max_sugar', 10.0)
-        local_view = local_view / max_sugar
-        features.extend(local_view)
-        
-        # 2. 智能体内部状态
-        agent_features = [
-            self.sugar / 50.0,  # 假设最大糖量为50
-            min(self.age / 500.0, 1.0),  # 年龄归一化，上限500
-            self.metabolism_rate / 3.0,  # 新陈代谢率归一化
-            self.vision_range / 8.0,  # 视野范围归一化
-            len(self.visited_positions) / 100.0  # 探索进度
-        ]
-        features.extend(agent_features)
-        
-        # 3. 相对位置特征
-        grid_center = self.environment_size // 2
-        rel_x = (self.x - grid_center) / self.environment_size
-        rel_y = (self.y - grid_center) / self.environment_size
-        features.extend([rel_x, rel_y])
-        
-        # 4. 时间特征（周期性）
-        if hasattr(observation, 'step'):
-            step = observation.step
-            # 添加周期性时间特征
-            features.extend([
-                np.sin(2 * np.pi * step / 100),
-                np.cos(2 * np.pi * step / 100)
-            ])
-        
-        # 转换为固定维度状态向量
-        state = np.array(features, dtype=np.float32)
-        
-        # 维度处理
-        if len(state) > self.state_dim:
-            # 截断到指定维度
-            state = state[:self.state_dim]
-            self.logger.warning(f"状态向量被截断: {len(features)} -> {self.state_dim}")
-        elif len(state) < self.state_dim:
-            # 填充到指定维度
-            padding = np.zeros(self.state_dim - len(state))
-            state = np.concatenate([state, padding])
-        
-        # 验证输出维度
-        assert len(state) == self.state_dim, f"状态维度错误: {len(state)} != {self.state_dim}"
-        
-        return state
+            # 2. 智能体内部状态
+            agent_features = [
+                max(0.0, min(1.0, self.sugar / 50.0)),  # 归一化糖量，限制在[0,1]
+                min(self.age / 500.0, 1.0),  # 年龄归一化，上限500
+                max(0.0, min(1.0, self.metabolism_rate / 3.0)),  # 归一化新陈代谢
+                max(0.0, min(1.0, self.vision_range / 8.0)),  # 归一化视野范围
+                min(len(self.visited_positions) / 100.0, 1.0)  # 探索进度归一化
+            ]
+            features.extend(agent_features)
+            
+            # 3. 相对位置特征
+            grid_center = self.environment_size // 2 if self.environment_size > 0 else 40
+            rel_x = max(-1.0, min(1.0, (self.x - grid_center) / max(1, self.environment_size)))
+            rel_y = max(-1.0, min(1.0, (self.y - grid_center) / max(1, self.environment_size)))
+            features.extend([rel_x, rel_y])
+            
+            # 4. 时间特征（周期性）
+            if hasattr(observation, 'step'):
+                step = observation.step
+                # 添加周期性时间特征
+                features.extend([
+                    np.sin(2 * np.pi * step / 100),
+                    np.cos(2 * np.pi * step / 100)
+                ])
+            else:
+                features.extend([0.0, 1.0])
+            
+            # 转换为固定维度状态向量
+            state = np.array(features, dtype=np.float32)
+            
+            # 检查NaN和Inf
+            if np.any(np.isnan(state)) or np.any(np.isinf(state)):
+                self.logger.warning(f"智能体 {self.agent_id} 状态包含NaN/Inf，已修复")
+                state = np.nan_to_num(state, nan=0.0, posinf=1.0, neginf=0.0)
+            
+            # 维度处理
+            if len(state) > self.state_dim:
+                # 截断到指定维度
+                state = state[:self.state_dim]
+                self.logger.warning(f"状态向量被截断: {len(features)} -> {self.state_dim}")
+            elif len(state) < self.state_dim:
+                # 填充到指定维度
+                padding = np.zeros(self.state_dim - len(state), dtype=np.float32)
+                state = np.concatenate([state, padding])
+            
+            # 验证输出维度
+            if len(state) != self.state_dim:
+                self.logger.error(
+                    f"状态维度错误: {len(state)} != {self.state_dim}，使用零向量"
+                )
+                state = np.zeros(self.state_dim, dtype=np.float32)
+            
+            return state
+            
+        except Exception as e:
+            self.logger.error(f"智能体 {self.agent_id} 状态处理失败: {e}", exc_info=True)
+            # 返回零向量作为后备
+            return np.zeros(self.state_dim, dtype=np.float32)
 
     def _get_global_state(self, observation: ObservationSpace) -> np.ndarray:
         """
@@ -432,46 +458,66 @@ class QMIXAgent(LearningAgent):
         Returns:
             全局状态向量
         """
-        global_features = []
-        
-        # 1. 环境统计信息
-        if hasattr(observation, 'global_stats'):
-            stats = observation.global_stats
-            global_features.extend([
-                stats.get('total_sugar', 0) / 5000.0,  # 环境总糖量
-                stats.get('avg_sugar', 0) / 10.0,      # 平均糖量
-                stats.get('agent_diversity', 0)        # 智能体多样性
-            ])
-        
-        # 2. 智能体群体统计
-        if hasattr(observation, 'global_stats') and 'agents_by_type' in observation.global_stats:
-            type_counts = observation.global_stats['agents_by_type']
-            total_agents = sum(type_counts.values())
+        try:
+            global_features = []
             
-            # 各类型智能体比例
-            for agent_type in ['rule_based', 'iql', 'qmix', 'conservative', 'exploratory', 'adaptive']:
-                count = type_counts.get(agent_type, 0)
-                proportion = count / max(1, total_agents)
-                global_features.append(proportion)
-        
-        # 3. 时间信息
-        if hasattr(observation, 'step'):
-            step = observation.step
-            global_features.extend([
-                step / 10000.0,  # 步数归一化
-                np.sin(2 * np.pi * step / 1000),
-                np.cos(2 * np.pi * step / 1000)
-            ])
-        
-        # 转换为numpy数组
-        global_state = np.array(global_features, dtype=np.float32)
-        
-        # 确保维度一致性
-        if len(global_state) < self.state_dim:
-            padding = np.zeros(self.state_dim - len(global_state))
-            global_state = np.concatenate([global_state, padding])
-        
-        return global_state[:self.state_dim]
+            # 1. 环境统计信息
+            if hasattr(observation, 'global_stats') and observation.global_stats:
+                stats = observation.global_stats
+                global_features.extend([
+                    min(stats.get('total_sugar', 0) / 5000.0, 1.0),  # 环境总糖量归一化
+                    min(stats.get('avg_sugar', 0) / 10.0, 1.0),      # 平均糖量归一化
+                    max(0.0, min(1.0, stats.get('agent_diversity', 0)))  # 智能体多样性
+                ])
+            else:
+                global_features.extend([0.0, 0.0, 0.0])
+            
+            # 2. 智能体群体统计
+            if hasattr(observation, 'global_stats') and observation.global_stats and 'agents_by_type' in observation.global_stats:
+                type_counts = observation.global_stats['agents_by_type']
+                total_agents = sum(type_counts.values())
+                
+                # 各类型智能体比例
+                for agent_type in ['rule_based', 'iql', 'qmix', 'conservative', 'exploratory', 'adaptive']:
+                    count = type_counts.get(agent_type, 0)
+                    proportion = count / max(1, total_agents)
+                    global_features.append(max(0.0, min(1.0, proportion)))
+            else:
+                # 如果没有统计信息，使用零向量
+                global_features.extend([0.0] * 6)
+            
+            # 3. 时间信息
+            if hasattr(observation, 'step'):
+                step = observation.step
+                global_features.extend([
+                    min(step / 10000.0, 1.0),  # 步数归一化
+                    np.sin(2 * np.pi * step / 1000),
+                    np.cos(2 * np.pi * step / 1000)
+                ])
+            else:
+                global_features.extend([0.0, 0.0, 1.0])
+            
+            # 转换为numpy数组
+            global_state = np.array(global_features, dtype=np.float32)
+            
+            # 检查NaN和Inf
+            if np.any(np.isnan(global_state)) or np.any(np.isinf(global_state)):
+                self.logger.warning(f"智能体 {self.agent_id} 全局状态包含NaN/Inf，已修复")
+                global_state = np.nan_to_num(global_state, nan=0.0, posinf=1.0, neginf=0.0)
+            
+            # 确保维度一致性
+            if len(global_state) < self.state_dim:
+                padding = np.zeros(self.state_dim - len(global_state), dtype=np.float32)
+                global_state = np.concatenate([global_state, padding])
+            elif len(global_state) > self.state_dim:
+                global_state = global_state[:self.state_dim]
+            
+            return global_state
+            
+        except Exception as e:
+            self.logger.error(f"智能体 {self.agent_id} 获取全局状态失败: {e}", exc_info=True)
+            # 返回零向量作为后备
+            return np.zeros(self.state_dim, dtype=np.float32)
     
     def _action_idx_to_position(self, action_idx: int) -> Tuple[int, int]:
         """
