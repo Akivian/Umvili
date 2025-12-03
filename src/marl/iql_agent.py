@@ -390,8 +390,11 @@ class IQLAgent(LearningAgent):
             if self.training_step % self.config.train_frequency == 0:
                 self.learn({})
             
-            # 更新探索率
+            # 更新探索率（在learn中也会更新，但这里确保即使不学习也更新）
             self._update_epsilon()
+            
+            # 递增训练步数（只在update中递增，避免重复计数）
+            self.training_step += 1
             
             return is_alive
             
@@ -436,7 +439,7 @@ class IQLAgent(LearningAgent):
         if self.training_step % self.config.target_update_frequency == 0:
             self._update_target_network()
         
-        # 衰减探索率
+        # 衰减探索率（在update中也会更新，这里确保即使不学习也更新）
         self.epsilon = max(
             self.config.epsilon_end, 
             self.epsilon * self.config.epsilon_decay
@@ -448,7 +451,7 @@ class IQLAgent(LearningAgent):
             self.q_network.reset_noise()
             self.target_network.reset_noise()
         
-        self.training_step += 1
+        # 注意：training_step在update中递增，这里只递增learning_steps
         self.learning_steps += 1
     
     def _update_network(self) -> Tuple[Optional[float], List[float]]:
@@ -515,12 +518,15 @@ class IQLAgent(LearningAgent):
                 # 如果状态维度不匹配，尝试调整
                 if states.size(1) > self.state_dim:
                     states = states[:, :self.state_dim]
-                    next_states = next_states[:, :self.state_dim]
+                    if next_states.size(1) > self.state_dim:
+                        next_states = next_states[:, :self.state_dim]
                 else:
                     # 填充零
-                    padding = torch.zeros(batch_size, self.state_dim - states.size(1))
+                    padding = torch.zeros(batch_size, self.state_dim - states.size(1), device=states.device)
                     states = torch.cat([states, padding], dim=1)
-                    next_states = torch.cat([next_states, padding], dim=1)
+                    if next_states.size(1) < self.state_dim:
+                        next_padding = torch.zeros(batch_size, self.state_dim - next_states.size(1), device=next_states.device)
+                        next_states = torch.cat([next_states, next_padding], dim=1)
             
             # 计算当前Q值
             q_values = self.q_network(states)  # [batch_size, action_dim]
@@ -586,6 +592,16 @@ class IQLAgent(LearningAgent):
             td_errors_np = td_errors.detach().cpu().numpy()
             if td_errors_np.ndim == 0:
                 td_errors_np = np.array([td_errors_np])
+            
+            # 确保indices和td_errors_np的长度匹配
+            if len(indices) != len(td_errors_np):
+                self.logger.warning(
+                    f"优先级更新时索引和误差长度不匹配: {len(indices)} != {len(td_errors_np)}"
+                )
+                min_len = min(len(indices), len(td_errors_np))
+                indices = indices[:min_len]
+                td_errors_np = td_errors_np[:min_len]
+            
             self.replay_buffer.update_priorities(indices, td_errors_np.tolist())
             
             # 记录训练统计
