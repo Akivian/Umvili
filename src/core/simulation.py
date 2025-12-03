@@ -648,7 +648,8 @@ class MARLSimulation:
             'agents': self._get_agents_data(),
             'performance': self._get_performance_data(),
             'configuration': self._get_configuration_data(),
-            'training_metrics': self._serialize_training_metrics()
+            'training_metrics': self._serialize_training_metrics(),
+            'simulation': self  # 添加simulation对象引用，用于网络状态可视化
         }
     
     def _serialize_metrics(self, metrics: SimulationMetrics) -> Dict[str, Any]:

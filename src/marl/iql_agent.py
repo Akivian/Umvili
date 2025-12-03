@@ -882,6 +882,120 @@ class IQLAgent(LearningAgent):
         
         return policy
     
+    def get_q_value_map(self, environment: Any, sample_density: int = 2) -> np.ndarray:
+        """
+        获取整个环境的Q值热图
+        
+        Args:
+            environment: 环境对象
+            sample_density: 采样密度（每隔多少个格子采样一次，1表示全部采样）
+            
+        Returns:
+            Q值热图，形状为 (grid_size, grid_size)，值为最大Q值
+        """
+        if self.q_network is None:
+            return np.zeros((self.environment_size, self.environment_size), dtype=np.float32)
+        
+        try:
+            q_map = np.zeros((self.environment_size, self.environment_size), dtype=np.float32)
+            
+            # 保存当前位置
+            original_x, original_y = self.x, self.y
+            
+            # 遍历环境中的每个位置（按采样密度）
+            for x in range(0, self.environment_size, sample_density):
+                for y in range(0, self.environment_size, sample_density):
+                    # 临时设置智能体位置
+                    self.x, self.y = x, y
+                    
+                    # 获取该位置的观察
+                    observation = self.observe(environment)
+                    
+                    # 计算Q值
+                    q_values = self.get_q_values(observation)
+                    
+                    # 记录最大Q值
+                    q_map[x, y] = np.max(q_values) if len(q_values) > 0 else 0.0
+                    
+                    # 如果采样密度>1，填充周围区域
+                    if sample_density > 1:
+                        for dx in range(sample_density):
+                            for dy in range(sample_density):
+                                nx, ny = x + dx, y + dy
+                                if 0 <= nx < self.environment_size and 0 <= ny < self.environment_size:
+                                    q_map[nx, ny] = q_map[x, y]
+            
+            # 恢复原始位置
+            self.x, self.y = original_x, original_y
+            
+            return q_map
+        except Exception as e:
+            self.logger.error(f"获取Q值热图失败: {e}", exc_info=True)
+            # 恢复位置
+            self.x, self.y = original_x, original_y
+            return np.zeros((self.environment_size, self.environment_size), dtype=np.float32)
+    
+    def get_network_state(self, observation: ObservationSpace) -> Dict[str, Any]:
+        """
+        获取网络内部状态（隐藏层激活、策略分布等）
+        
+        Args:
+            observation: 观察空间
+            
+        Returns:
+            包含网络内部状态的字典
+        """
+        if self.q_network is None:
+            return {
+                'hidden_activations': [],
+                'q_values': np.zeros(self.action_dim),
+                'policy': np.ones(self.action_dim) / self.action_dim,
+                'network_initialized': False
+            }
+        
+        try:
+            state = self._process_observation(observation)
+            state_tensor = torch.FloatTensor(state).unsqueeze(0)
+            
+            # 获取Q值
+            with torch.no_grad():
+                q_values = self.q_network(state_tensor)
+                q_values_np = q_values.numpy().flatten()
+            
+            # 获取隐藏层激活（如果网络支持）
+            hidden_activations = []
+            if hasattr(self.q_network, 'network'):
+                # 遍历网络层，提取激活值
+                x = state_tensor
+                for i, layer in enumerate(self.q_network.network):
+                    if isinstance(layer, (nn.Linear, nn.ReLU, nn.LeakyReLU, nn.Tanh)):
+                        x = layer(x)
+                        if isinstance(layer, nn.Linear):
+                            # 记录线性层的输出（激活前）
+                            hidden_activations.append(x.detach().numpy().flatten())
+            
+            # 计算策略分布
+            policy = self.get_policy(observation)
+            
+            return {
+                'hidden_activations': hidden_activations,
+                'q_values': q_values_np,
+                'policy': policy,
+                'network_initialized': True,
+                'epsilon': self.epsilon,
+                'state_dim': self.state_dim,
+                'action_dim': self.action_dim
+            }
+        except Exception as e:
+            self.logger.error(f"获取网络状态失败: {e}", exc_info=True)
+            return {
+                'hidden_activations': [],
+                'q_values': np.zeros(self.action_dim),
+                'policy': np.ones(self.action_dim) / self.action_dim,
+                'network_initialized': False,
+                'error': str(e)
+            }
+    
     def get_training_info(self) -> Dict[str, Any]:
         """获取训练信息"""
         if len(self.training_stats['q_values']) == 0:

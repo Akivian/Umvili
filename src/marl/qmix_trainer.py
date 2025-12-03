@@ -56,6 +56,13 @@ class QMIXTrainer:
         self.agent_hidden_dims = self.config.get('agent_hidden_dims', [64, 64])
         self.mixing_hidden_dim = self.config.get('mixing_hidden_dim', 32)
         
+        # 日志（必须在任何会使用logger的方法之前初始化）
+        self.logger = logging.getLogger('QMIXTrainer')
+        
+        # 设备配置（必须在网络初始化之前设置，因为_move_networks_to_device会使用它）
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.logger.info(f"QMIX训练器初始化: {num_agents}个智能体, 设备: {self.device}")
+        
         # 初始化网络
         self._initialize_networks()
         
@@ -85,14 +92,6 @@ class QMIXTrainer:
             'mixing_losses': [],
             'individual_losses': []
         }
-        
-        # 日志（必须在任何会使用logger的方法之前初始化）
-        self.logger = logging.getLogger('QMIXTrainer')
-
-        # 设备配置
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        self.logger.info(f"QMIX训练器初始化: {num_agents}个智能体, 设备: {self.device}")
     
     def _initialize_networks(self) -> None:
         """初始化所有网络"""
