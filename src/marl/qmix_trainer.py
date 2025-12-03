@@ -83,12 +83,13 @@ class QMIXTrainer:
             'individual_losses': []
         }
         
+        # 日志（必须在任何会使用logger的方法之前初始化）
+        self.logger = logging.getLogger('QMIXTrainer')
+
         # 设备配置
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._move_networks_to_device()
-        
-        # 日志
-        self.logger = logging.getLogger('QMIXTrainer')
+
         self.logger.info(f"QMIX训练器初始化: {num_agents}个智能体, 设备: {self.device}")
     
     def _initialize_networks(self) -> None:
@@ -136,7 +137,10 @@ class QMIXTrainer:
         self.target_q_network.to(self.device)
         self.mixing_network.to(self.device)
         self.target_mixing_network.to(self.device)
-        self.logger.info(f"网络已移动到设备: {self.device}")
+        # 该方法在 __init__ 早期就会被调用，因此要防御性地访问 logger
+        logger = getattr(self, "logger", None)
+        if logger is not None:
+            logger.info(f"网络已移动到设备: {self.device}")
     
     def store_individual_experience(self, experience: Dict[str, Any]) -> None:
         """
