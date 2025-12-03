@@ -111,8 +111,9 @@ class IQLAgent(LearningAgent):
         self.last_experience = None
         self.learning_steps = 0
         
-        # 环境信息
+        # 环境信息（将在第一次观察时更新）
         self.environment_size = GRID_SIZE
+        self._environment_size_initialized = False
         
         # 动作映射（8个方向 + 静止）
         self.directions = [
@@ -174,6 +175,15 @@ class IQLAgent(LearningAgent):
             'hidden_dims': self.config.hidden_dims
         }
         
+        # 验证网络参数
+        if self.state_dim <= 0:
+            raise ValueError(f"状态维度必须大于0，得到: {self.state_dim}")
+        if self.action_dim <= 0:
+            raise ValueError(f"动作维度必须大于0，得到: {self.action_dim}")
+        if self.config.hidden_dims is None or len(self.config.hidden_dims) == 0:
+            self.config.hidden_dims = [128, 64]
+            self.logger.warning("隐藏层维度未指定，使用默认值 [128, 64]")
+        
         # 选择网络类型
         if self.config.network_type == "dueling":
             network_class = DuelingQNetwork
@@ -182,18 +192,32 @@ class IQLAgent(LearningAgent):
         else:
             network_class = QNetwork
         
-        self.q_network = network_class(**network_args)
-        self.target_network = network_class(**network_args)
-        self.target_network.load_state_dict(self.q_network.state_dict())
-        
-        # 优化器
-        self.optimizer = optim.Adam(
-            self.q_network.parameters(), 
-            lr=self.config.learning_rate
-        )
-        
-        # 损失函数
-        self.loss_fn = nn.MSELoss()
+        try:
+            self.q_network = network_class(**network_args)
+            self.target_network = network_class(**network_args)
+            self.target_network.load_state_dict(self.q_network.state_dict())
+            
+            # 设置目标网络为评估模式（不需要梯度）
+            self.target_network.eval()
+            
+            # 优化器
+            self.optimizer = optim.Adam(
+                self.q_network.parameters(), 
+                lr=self.config.learning_rate,
+                eps=1e-8  # 添加数值稳定性
+            )
+            
+            # 损失函数
+            self.loss_fn = nn.MSELoss(reduction='none')  # 使用'none'以便应用权重
+            
+            self.logger.info(
+                f"网络初始化成功: 类型={self.config.network_type}, "
+                f"状态维度={self.state_dim}, 动作维度={self.action_dim}, "
+                f"隐藏层={self.config.hidden_dims}"
+            )
+        except Exception as e:
+            self.logger.error(f"网络初始化失败: {e}", exc_info=True)
+            raise
     
     def decide_action(self, observation: ObservationSpace) -> Tuple[int, int]:
         """
@@ -209,54 +233,99 @@ class IQLAgent(LearningAgent):
             # 处理观察为状态向量
             state = self._process_observation(observation)
             
-            # 探索 vs 利用
-            if random.random() < self.epsilon:
-                # 随机探索
+            # 验证状态维度
+            if len(state) != self.state_dim:
+                self.logger.warning(
+                    f"智能体 {self.agent_id} 状态维度不匹配: "
+                    f"{len(state)} != {self.state_dim}，使用随机动作"
+                )
                 action_idx = random.randint(0, self.action_dim - 1)
-                self.logger.debug(f"智能体 {self.agent_id} 随机探索: 动作 {action_idx}")
             else:
-                # 利用Q值选择最佳动作
-                if self.q_network is None:
-                    # 网络未初始化，随机选择
+                # 探索 vs 利用
+                if random.random() < self.epsilon:
+                    # 随机探索
                     action_idx = random.randint(0, self.action_dim - 1)
-                    self.logger.warning(f"智能体 {self.agent_id} Q网络未初始化，使用随机动作")
+                    self.logger.debug(f"智能体 {self.agent_id} 随机探索: 动作 {action_idx}")
                 else:
-                    with torch.no_grad():
-                        state_tensor = torch.FloatTensor(state).unsqueeze(0)
-                        q_values = self.q_network(state_tensor)
-                        action_idx = q_values.argmax().item()
-                        
-                        # 记录Q值统计
-                        max_q = q_values.max().item()
-                        self.training_stats['q_values'].append(max_q)
-                    
-                    self.logger.debug(f"智能体 {self.agent_id} 利用: "
-                                    f"动作 {action_idx}, Q值 {max_q:.3f}")
+                    # 利用Q值选择最佳动作
+                    if self.q_network is None:
+                        # 网络未初始化，随机选择
+                        action_idx = random.randint(0, self.action_dim - 1)
+                        self.logger.warning(f"智能体 {self.agent_id} Q网络未初始化，使用随机动作")
+                    else:
+                        with torch.no_grad():
+                            # 确保状态是2D张量
+                            if isinstance(state, np.ndarray):
+                                state_tensor = torch.FloatTensor(state).unsqueeze(0)
+                            else:
+                                state_tensor = torch.FloatTensor([state]).unsqueeze(0)
+                            
+                            # 验证状态张量维度
+                            if state_tensor.size(1) != self.state_dim:
+                                self.logger.warning(
+                                    f"智能体 {self.agent_id} 状态张量维度不匹配: "
+                                    f"{state_tensor.size(1)} != {self.state_dim}"
+                                )
+                                action_idx = random.randint(0, self.action_dim - 1)
+                            else:
+                                q_values = self.q_network(state_tensor)
+                                
+                                # 验证Q值输出维度
+                                if q_values.size(1) != self.action_dim:
+                                    self.logger.error(
+                                        f"智能体 {self.agent_id} Q值维度错误: "
+                                        f"{q_values.size(1)} != {self.action_dim}"
+                                    )
+                                    action_idx = random.randint(0, self.action_dim - 1)
+                                else:
+                                    action_idx = q_values.argmax().item()
+                                    
+                                    # 确保动作索引在有效范围内
+                                    action_idx = max(0, min(action_idx, self.action_dim - 1))
+                                    
+                                    # 记录Q值统计
+                                    max_q = q_values.max().item()
+                                    self.training_stats['q_values'].append(max_q)
+                                
+                                self.logger.debug(f"智能体 {self.agent_id} 利用: "
+                                                f"动作 {action_idx}, Q值 {max_q:.3f}")
             
             # 转换为环境动作
             action = self._action_idx_to_position(action_idx)
             
             # 准备经验数据（在update方法中完善并存储）
             if self.last_state is not None and self.last_action is not None:
+                # 确保last_state和state都是numpy数组且维度正确
+                last_state = np.array(self.last_state, dtype=np.float32)
+                current_state = np.array(state, dtype=np.float32)
+                
+                # 确保维度匹配
+                if len(last_state) != self.state_dim:
+                    last_state = np.zeros(self.state_dim, dtype=np.float32)
+                if len(current_state) != self.state_dim:
+                    current_state = np.zeros(self.state_dim, dtype=np.float32)
+                
                 experience = Experience(
-                    state=self.last_state,
-                    action=self.last_action,
+                    state=last_state,
+                    action=int(self.last_action),  # 确保是整数
                     reward=0.0,  # 在update中设置实际奖励
-                    next_state=state,
+                    next_state=current_state,
                     done=False,
                     agent_id=self.agent_id,
                     timestamp=time.time()
                 )
                 self.last_experience = experience
             
-            # 更新状态记录
-            self.last_state = state
-            self.last_action = action_idx
+            # 更新状态记录（确保是numpy数组）
+            self.last_state = np.array(state, dtype=np.float32)
+            self.last_action = int(action_idx)  # 确保是整数
             
             return action
             
         except Exception as e:
             self.logger.error(f"智能体 {self.agent_id} 决策失败: {e}", exc_info=True)
+            import traceback
+            self.logger.debug(f"详细错误信息: {traceback.format_exc()}")
             # 失败时返回当前位置（不移动）
             return self.x, self.y
     
@@ -367,7 +436,7 @@ class IQLAgent(LearningAgent):
             # 从回放缓冲区采样
             batch = self.replay_buffer.sample(self.config.batch_size)
             
-            # 转换数据为张量
+            # 转换数据为张量，确保正确的形状和类型
             states = torch.FloatTensor(batch['states'])
             actions = torch.LongTensor(batch['actions'])
             rewards = torch.FloatTensor(batch['rewards'])
@@ -376,29 +445,109 @@ class IQLAgent(LearningAgent):
             weights = batch['weights']
             indices = batch['indices']
             
+            # 输入验证和维度修复
             batch_size = states.size(0)
             
+            # 确保states是2D: [batch_size, state_dim]
+            if states.dim() == 1:
+                states = states.unsqueeze(0)
+                batch_size = 1
+            elif states.dim() > 2:
+                states = states.view(batch_size, -1)
+            
+            # 确保actions是1D: [batch_size]
+            if actions.dim() == 0:
+                actions = actions.unsqueeze(0)
+            elif actions.dim() > 1:
+                actions = actions.squeeze()
+            
+            # 确保actions在有效范围内
+            actions = torch.clamp(actions, 0, self.action_dim - 1)
+            
+            # 确保rewards是1D: [batch_size]
+            if rewards.dim() == 0:
+                rewards = rewards.unsqueeze(0)
+            elif rewards.dim() > 1:
+                rewards = rewards.squeeze()
+            
+            # 确保next_states是2D: [batch_size, state_dim]
+            if next_states.dim() == 1:
+                next_states = next_states.unsqueeze(0)
+            elif next_states.dim() > 2:
+                next_states = next_states.view(batch_size, -1)
+            
+            # 确保dones是1D: [batch_size]
+            if dones.dim() == 0:
+                dones = dones.unsqueeze(0)
+            elif dones.dim() > 1:
+                dones = dones.squeeze()
+            
+            # 验证状态维度
+            if states.size(1) != self.state_dim:
+                self.logger.warning(
+                    f"状态维度不匹配: 期望 {self.state_dim}, 得到 {states.size(1)}. "
+                    f"将调整状态维度"
+                )
+                # 如果状态维度不匹配，尝试调整
+                if states.size(1) > self.state_dim:
+                    states = states[:, :self.state_dim]
+                    next_states = next_states[:, :self.state_dim]
+                else:
+                    # 填充零
+                    padding = torch.zeros(batch_size, self.state_dim - states.size(1))
+                    states = torch.cat([states, padding], dim=1)
+                    next_states = torch.cat([next_states, padding], dim=1)
+            
             # 计算当前Q值
-            current_q_values = self.q_network(states).gather(1, actions.unsqueeze(1))
+            q_values = self.q_network(states)  # [batch_size, action_dim]
+            
+            # 确保actions是正确的形状用于gather
+            if actions.dim() == 1:
+                actions = actions.unsqueeze(1)  # [batch_size, 1]
+            
+            # 验证actions维度
+            if actions.size(0) != batch_size:
+                self.logger.error(f"动作批次大小不匹配: {actions.size(0)} != {batch_size}")
+                return None, []
+            
+            current_q_values = q_values.gather(1, actions)  # [batch_size, 1]
             
             # 计算目标Q值
             with torch.no_grad():
                 if self.config.use_double_dqn:
                     # Double DQN: 使用在线网络选择动作，目标网络评估
-                    next_actions = self.q_network(next_states).argmax(1, keepdim=True)
-                    next_q_values = self.target_network(next_states).gather(1, next_actions)
+                    next_q_values_online = self.q_network(next_states)  # [batch_size, action_dim]
+                    next_actions = next_q_values_online.argmax(1, keepdim=True)  # [batch_size, 1]
+                    next_q_values = self.target_network(next_states).gather(1, next_actions)  # [batch_size, 1]
                 else:
                     # 标准DQN: 直接使用目标网络的最大值
-                    next_q_values = self.target_network(next_states).max(1, keepdim=True)[0]
+                    next_q_values = self.target_network(next_states).max(1, keepdim=True)[0]  # [batch_size, 1]
+                
+                # 确保rewards和dones的形状正确
+                if rewards.dim() == 1:
+                    rewards = rewards.unsqueeze(1)  # [batch_size, 1]
+                if dones.dim() == 1:
+                    dones = dones.unsqueeze(1)  # [batch_size, 1]
                 
                 # 计算目标Q值，考虑终止状态
-                target_q_values = rewards.unsqueeze(1) + (
-                    self.discount_factor * next_q_values * ~dones.unsqueeze(1)
+                target_q_values = rewards + (
+                    self.discount_factor * next_q_values * (~dones)
                 )
             
             # 计算TD误差和损失
-            td_errors = (target_q_values - current_q_values).abs().squeeze().detach().numpy()
-            loss = (weights.unsqueeze(1) * self.loss_fn(current_q_values, target_q_values)).mean()
+            td_errors = (target_q_values - current_q_values).abs().squeeze()  # [batch_size]
+            
+            # 确保weights的形状正确
+            if isinstance(weights, torch.Tensor):
+                if weights.dim() == 1:
+                    weights = weights.unsqueeze(1)  # [batch_size, 1]
+                elif weights.dim() == 0:
+                    weights = weights.unsqueeze(0).unsqueeze(0)
+            else:
+                weights = torch.ones(batch_size, 1)
+            
+            # 计算加权损失
+            loss = (weights * self.loss_fn(current_q_values, target_q_values)).mean()
             
             # 反向传播
             self.optimizer.zero_grad()
@@ -410,24 +559,30 @@ class IQLAgent(LearningAgent):
             self.optimizer.step()
             
             # 更新优先级（基于TD误差）
-            self.replay_buffer.update_priorities(indices, td_errors.tolist())
+            td_errors_np = td_errors.detach().cpu().numpy()
+            if td_errors_np.ndim == 0:
+                td_errors_np = np.array([td_errors_np])
+            self.replay_buffer.update_priorities(indices, td_errors_np.tolist())
             
             # 记录训练统计
             self.training_stats['losses'].append(loss.item())
-            self.training_stats['td_errors'].extend(td_errors.tolist())
+            self.training_stats['td_errors'].extend(td_errors_np.tolist())
             
             # 定期记录训练进度
             if self.training_step % 100 == 0:
                 self.logger.info(
                     f"智能体 {self.agent_id} 训练步数: {self.training_step}, "
                     f"损失: {loss.item():.4f}, "
-                    f"平均Q值: {current_q_values.mean().item():.4f}"
+                    f"平均Q值: {current_q_values.mean().item():.4f}, "
+                    f"平均TD误差: {td_errors.mean().item():.4f}"
                 )
             
-            return loss.item(), td_errors.tolist()
+            return loss.item(), td_errors_np.tolist()
             
         except Exception as e:
             self.logger.error(f"网络更新失败: {str(e)}", exc_info=True)
+            import traceback
+            self.logger.debug(f"详细错误信息: {traceback.format_exc()}")
             return None, []
     
     def _update_target_network(self) -> None:
@@ -493,6 +648,13 @@ class IQLAgent(LearningAgent):
             处理后的状态向量
         """
         try:
+            # 更新环境大小（如果可用）
+            if hasattr(observation, 'environment_size') and observation.environment_size > 0:
+                if not self._environment_size_initialized or self.environment_size != observation.environment_size:
+                    self.environment_size = observation.environment_size
+                    self._environment_size_initialized = True
+                    self.logger.debug(f"智能体 {self.agent_id} 环境大小更新为: {self.environment_size}")
+            
             features = []
             
             # 1. 局部视野特征（糖分布）
@@ -564,20 +726,33 @@ class IQLAgent(LearningAgent):
                 self.logger.warning(f"智能体 {self.agent_id} 状态包含NaN/Inf，已修复")
                 state = np.nan_to_num(state, nan=0.0, posinf=1.0, neginf=0.0)
             
-            # 维度处理
-            if len(state) > self.state_dim:
-                # 截断到指定维度
-                state = state[:self.state_dim]
-                if self.logger.isEnabledFor(logging.DEBUG):
-                    self.logger.debug(f"状态向量被截断: {len(features)} -> {self.state_dim}")
-            elif len(state) < self.state_dim:
-                # 填充到指定维度
-                padding = np.zeros(self.state_dim - len(state), dtype=np.float32)
-                state = np.concatenate([state, padding])
+            # 维度处理 - 确保状态维度匹配网络输入
+            state_len = len(state)
+            if state_len != self.state_dim:
+                if state_len > self.state_dim:
+                    # 截断到指定维度
+                    state = state[:self.state_dim]
+                    if self.logger.isEnabledFor(logging.DEBUG):
+                        self.logger.debug(
+                            f"状态向量被截断: {state_len} -> {self.state_dim} "
+                            f"(智能体 {self.agent_id})"
+                        )
+                elif state_len < self.state_dim:
+                    # 填充到指定维度
+                    padding = np.zeros(self.state_dim - state_len, dtype=np.float32)
+                    state = np.concatenate([state, padding])
+                    if self.logger.isEnabledFor(logging.DEBUG):
+                        self.logger.debug(
+                            f"状态向量被填充: {state_len} -> {self.state_dim} "
+                            f"(智能体 {self.agent_id})"
+                        )
             
-            # 验证输出维度
+            # 最终验证输出维度
             if len(state) != self.state_dim:
-                self.logger.error(f"状态维度错误: {len(state)} != {self.state_dim}，使用零向量")
+                self.logger.error(
+                    f"状态维度错误: {len(state)} != {self.state_dim} "
+                    f"(智能体 {self.agent_id})，使用零向量"
+                )
                 state = np.zeros(self.state_dim, dtype=np.float32)
             
             return state
@@ -617,11 +792,35 @@ class IQLAgent(LearningAgent):
         Returns:
             Q值数组
         """
-        state = self._process_observation(observation)
-        with torch.no_grad():
-            state_tensor = torch.FloatTensor(state).unsqueeze(0)
-            q_values = self.q_network(state_tensor)
-        return q_values.numpy().flatten()
+        try:
+            state = self._process_observation(observation)
+            
+            # 验证状态维度
+            if len(state) != self.state_dim:
+                self.logger.warning(
+                    f"获取Q值时状态维度不匹配: {len(state)} != {self.state_dim}"
+                )
+                return np.zeros(self.action_dim, dtype=np.float32)
+            
+            with torch.no_grad():
+                state_tensor = torch.FloatTensor(state).unsqueeze(0)
+                
+                # 验证张量维度
+                if state_tensor.size(1) != self.state_dim:
+                    self.logger.error(f"状态张量维度错误: {state_tensor.size(1)} != {self.state_dim}")
+                    return np.zeros(self.action_dim, dtype=np.float32)
+                
+                q_values = self.q_network(state_tensor)
+                
+                # 验证Q值维度
+                if q_values.size(1) != self.action_dim:
+                    self.logger.error(f"Q值维度错误: {q_values.size(1)} != {self.action_dim}")
+                    return np.zeros(self.action_dim, dtype=np.float32)
+                
+                return q_values.numpy().flatten()
+        except Exception as e:
+            self.logger.error(f"获取Q值失败: {e}", exc_info=True)
+            return np.zeros(self.action_dim, dtype=np.float32)
     
     def get_policy(self, observation: ObservationSpace) -> np.ndarray:
         """

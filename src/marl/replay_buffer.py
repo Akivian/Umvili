@@ -176,12 +176,36 @@ class PriorityReplayBuffer:
                     state_dim = 128
                 batch['next_global_state'].append(np.zeros(state_dim, dtype=np.float32))
         
-        # 转换为numpy数组
-        batch['states'] = np.array(batch['states'])
-        batch['actions'] = np.array(batch['actions'])
-        batch['rewards'] = np.array(batch['rewards'])
-        batch['next_states'] = np.array(batch['next_states'])
-        batch['dones'] = np.array(batch['dones'])
+        # 转换为numpy数组，确保正确的数据类型和形状
+        batch['states'] = np.array(batch['states'], dtype=np.float32)
+        
+        # 处理actions - 确保是整数数组
+        actions_array = np.array(batch['actions'])
+        if actions_array.dtype != np.int64 and actions_array.dtype != np.int32:
+            # 如果是浮点数，转换为整数
+            actions_array = actions_array.astype(np.int64)
+        # 确保是1D数组
+        if actions_array.ndim > 1:
+            actions_array = actions_array.flatten()
+        batch['actions'] = actions_array
+        
+        # 处理rewards - 确保是浮点数数组
+        rewards_array = np.array(batch['rewards'])
+        if rewards_array.dtype != np.float32 and rewards_array.dtype != np.float64:
+            rewards_array = rewards_array.astype(np.float32)
+        if rewards_array.ndim > 1:
+            rewards_array = rewards_array.flatten()
+        batch['rewards'] = rewards_array
+        
+        batch['next_states'] = np.array(batch['next_states'], dtype=np.float32)
+        
+        # 处理dones - 确保是布尔数组
+        dones_array = np.array(batch['dones'])
+        if dones_array.dtype != bool:
+            dones_array = dones_array.astype(bool)
+        if dones_array.ndim > 1:
+            dones_array = dones_array.flatten()
+        batch['dones'] = dones_array
         # 处理全局状态数组
         if batch['global_state']:
             batch['global_state'] = np.array(batch['global_state'])

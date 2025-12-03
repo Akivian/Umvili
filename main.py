@@ -32,6 +32,7 @@ from src.core.simulation import MARLSimulation, SimulationFactory, SimulationSta
 from src.utils.visualization import ModernVisualizationSystem
 from src.config import (
     ApplicationConfig,
+    ApplicationState,
     SimulationConfig,
     UIConfig,
     ConfigLoader,
@@ -83,7 +84,7 @@ class MARLApplication:
             RuntimeError: 初始化失败时
         """
         self.state = ApplicationState.INITIALIZING
-        self.config = self._load_config(config)
+        self._load_config(config)
         self._validate_config()
         
         # 核心组件（延迟初始化）
@@ -103,29 +104,35 @@ class MARLApplication:
         
         logger.info("MARL应用程序对象创建完成")
     
-    def _load_config(self, config: Optional[Dict[str, Any]]) -> ApplicationConfig:
+    def _load_config(self, config: Optional[Dict[str, Any]]) -> None:
         """
         加载和合并配置
         
         Args:
             config: 用户提供的配置字典
-            
-        Returns:
-            合并后的配置对象
         """
         # 从默认配置开始
-        default_dict = DEFAULT_CONFIG.copy()
-        default_dict.update({
-            'simulation_type': 'comparative',
-            'target_fps': FPS,
-            'window_title': "MARL沙盘平台 - 多智能体强化学习模拟"
-        })
+        app_dict = DEFAULT_APP_CONFIG.copy()
+        sim_dict = DEFAULT_SIMULATION_CONFIG.copy()
+        ui_dict = DEFAULT_UI_CONFIG.copy()
         
         # 合并用户配置
         if config:
-            default_dict.update(config)
+            if 'app' in config:
+                app_dict.update(config['app'])
+            if 'simulation' in config:
+                sim_dict.update(config['simulation'])
+            if 'ui' in config:
+                ui_dict.update(config['ui'])
+            # 向后兼容：如果配置是扁平结构，尝试合并
+            for key in ['simulation_type', 'target_fps', 'window_title']:
+                if key in config:
+                    app_dict[key] = config[key]
         
-        return ApplicationConfig.from_dict(default_dict)
+        # 创建配置对象
+        self.app_config = ApplicationConfig.from_dict(app_dict)
+        self.sim_config = SimulationConfig.from_dict(sim_dict)
+        self.ui_config = UIConfig.from_dict(ui_dict)
     
     def _validate_config(self) -> None:
         """验证配置有效性"""
@@ -695,6 +702,14 @@ def main() -> int:
         
         # 构建配置字典
         user_config = {}
+        
+        # 如果提供了配置文件，先加载它
+        if args.config:
+            file_config = load_config_from_file(args.config)
+            if file_config:
+                user_config.update(file_config)
+        
+        # 命令行参数覆盖配置文件
         if args.simulation_type:
             user_config.setdefault('app', {})['simulation_type'] = args.simulation_type
         if args.grid_size:
@@ -702,9 +717,8 @@ def main() -> int:
         if args.agents:
             user_config.setdefault('simulation', {})['initial_agents'] = args.agents
         
-        # 创建应用程序（支持配置文件路径）
-        app = MARLApplication(config=user_config if user_config else None, 
-                             config_path=args.config)
+        # 创建应用程序
+        app = MARLApplication(config=user_config if user_config else None)
         
         # 初始化
         if not app.initialize():

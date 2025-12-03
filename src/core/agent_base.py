@@ -22,7 +22,6 @@ from enum import Enum
 import time
 import logging
 
-from src.config.ui_config import COLORS
 # 向后兼容：使用默认值
 CELL_SIZE = 10
 
@@ -545,6 +544,9 @@ class BaseAgent(ABC):
         Get color for agent type
         Uses configuration colors if available
         """
+        # 延迟导入以避免循环导入
+        from src.config.ui_config import COLORS
+        
         color_map = {
             AgentType.RULE_BASED: COLORS.get('AGENT_RULE_BASED', (31, 119, 180)),
             AgentType.IQL: COLORS.get('AGENT_IQL', (255, 127, 14)),

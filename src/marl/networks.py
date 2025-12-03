@@ -80,9 +80,11 @@ class MLP(nn.Module):
         """初始化网络权重"""
         for module in self.modules():
             if isinstance(module, nn.Linear):
-                nn.init.xavier_uniform_(module.weight)
+                # 使用Xavier初始化，适合ReLU激活函数
+                nn.init.xavier_uniform_(module.weight, gain=nn.init.calculate_gain('relu'))
                 if module.bias is not None:
-                    nn.init.constant_(module.bias, 0.1)
+                    # 使用小的正偏置，避免死神经元
+                    nn.init.constant_(module.bias, 0.01)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.network(x)
