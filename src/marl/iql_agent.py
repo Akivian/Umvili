@@ -107,7 +107,7 @@ class IQLAgent(LearningAgent):
         # 训练状态
         self.training_step = 0
         self.last_state = None
-        self.last_action = None
+        self.last_action_idx = None  # 动作索引（整数），避免与BaseAgent的last_action（位置tuple）冲突
         self.last_experience = None
         self.learning_steps = 0
         
@@ -294,7 +294,8 @@ class IQLAgent(LearningAgent):
             action = self._action_idx_to_position(action_idx)
             
             # 准备经验数据（在update方法中完善并存储）
-            if self.last_state is not None and self.last_action is not None:
+            # 注意：使用last_action_idx而不是last_action，避免与BaseAgent的last_action（位置tuple）冲突
+            if self.last_state is not None and self.last_action_idx is not None:
                 # 确保last_state和state都是numpy数组且维度正确
                 last_state = np.array(self.last_state, dtype=np.float32)
                 current_state = np.array(state, dtype=np.float32)
@@ -305,9 +306,32 @@ class IQLAgent(LearningAgent):
                 if len(current_state) != self.state_dim:
                     current_state = np.zeros(self.state_dim, dtype=np.float32)
                 
+                # 确保last_action_idx是整数
+                action_idx_value = self.last_action_idx
+                if isinstance(action_idx_value, tuple):
+                    # 如果意外是tuple，记录错误并使用默认值
+                    self.logger.error(
+                        f"智能体 {self.agent_id} last_action_idx是tuple而不是整数: {action_idx_value}，"
+                        f"使用随机动作索引"
+                    )
+                    action_idx_value = random.randint(0, self.action_dim - 1)
+                elif not isinstance(action_idx_value, (int, np.integer)):
+                    # 如果不是整数类型，尝试转换
+                    try:
+                        action_idx_value = int(action_idx_value)
+                    except (ValueError, TypeError):
+                        self.logger.error(
+                            f"智能体 {self.agent_id} 无法将last_action_idx转换为整数: {action_idx_value}，"
+                            f"使用随机动作索引"
+                        )
+                        action_idx_value = random.randint(0, self.action_dim - 1)
+                
+                # 确保动作索引在有效范围内
+                action_idx_value = max(0, min(int(action_idx_value), self.action_dim - 1))
+                
                 experience = Experience(
                     state=last_state,
-                    action=int(self.last_action),  # 确保是整数
+                    action=int(action_idx_value),  # 确保是整数
                     reward=0.0,  # 在update中设置实际奖励
                     next_state=current_state,
                     done=False,
@@ -318,7 +342,7 @@ class IQLAgent(LearningAgent):
             
             # 更新状态记录（确保是numpy数组）
             self.last_state = np.array(state, dtype=np.float32)
-            self.last_action = int(action_idx)  # 确保是整数
+            self.last_action_idx = int(action_idx)  # 存储动作索引（整数）
             
             return action
             
@@ -894,7 +918,7 @@ class IQLAgent(LearningAgent):
         
         # 重置IQL特定状态
         self.last_state = None
-        self.last_action = None
+        self.last_action_idx = None  # 使用last_action_idx而不是last_action
         self.last_experience = None
         self._last_sugar = self.sugar
         self._last_position = (self.x, self.y)

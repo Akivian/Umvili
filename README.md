@@ -140,10 +140,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 If you use Umvili in your research, please cite:
 
 ```bibtex
-@software{umvili2024,
+@software{umvili2025,
   title={Umvili: A MARL Algorithm Comparison Platform},
   author={Akivian},
-  year={2024},
+  year={2025},
   url={https://github.com/Akivian/Umvili}
 }
 ```
