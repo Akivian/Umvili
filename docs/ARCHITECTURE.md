@@ -76,9 +76,14 @@ Umvili/
 - `agent_base.py`: Base agent class and interface definitions
 - `agents.py`: Rule-based agent implementations (RuleBased, Conservative, Exploratory, Adaptive)
 - `agent_factory.py`: Agent creation and management factory
-- `environment.py`: Sugar environment implementation
+- `environment.py`: Multi-resource environment implementation (Sugar/Spice/Hazard)
 - `simulation.py`: Simulation engine core logic
 - `reward_calculator.py`: Unified reward calculation system
+
+**Environment System**:
+- **Sugar**: Basic resource with two main hills, continuous regeneration
+- **Spice**: High-value rare resource that spawns in 1-2 concentrated areas, depletes, and respawns after delay
+- **Hazard**: Dynamic danger zones that spread from random core points, causing resource depletion and agent damage
 
 **Design Patterns**:
 - Factory Pattern: Agent creation
@@ -112,7 +117,10 @@ Umvili/
   - `AcademicVisualizationSystem`: Main visualization system with multi-view support
   - `AgentDistributionPanel`: Agent type and distribution visualization
   - `ActionDistributionPanel`: Action frequency and behavior analysis
-  - View system: Overview, Training, Behavior, Debug views
+  - `QValueHeatmapPanel`: Q-value heatmap overlay on environment map
+  - `NetworkStatePanel`: Network internal state visualization (policy, entropy, gradients)
+  - `MARLSimulationRenderer`: Multi-resource environment renderer (Sugar/Spice/Hazard)
+  - View system: Overview, Training, Behavior, Debug, Network views
 
 ## Design Principles
 

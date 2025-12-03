@@ -10,13 +10,21 @@ A sandbox-style multi-agent reinforcement learning (MARL) algorithm comparison p
 
 Umvili is a visualization platform for researching and comparing different multi-agent reinforcement learning algorithms. It provides an interactive environment where you can observe, compare, and analyze the behavior of various MARL algorithms in real-time.
 
+The platform features a sophisticated multi-resource environment with dynamic resource generation and hazard zones, enabling complex multi-agent scenarios where agents must balance resource collection, competition, and risk avoidance.
+
 ### Key Features
 
 - 🎯 **Multiple Algorithms**: Support for IQL, QMIX, and rule-based agents (conservative, exploratory, adaptive)
+- 🌍 **Complex Multi-Resource Environment**:
+  - **Sugar**: Basic resource with continuous regeneration across the map
+  - **Spice**: High-value rare resource that spawns in concentrated areas, depletes, and respawns randomly
+  - **Hazard**: Dynamic danger zones that spread from random core points, causing severe penalties to agents
 - 📊 **Advanced Visualization**: 
   - Real-time training metrics (Loss, Q-value, TD Error, Exploration Rate)
   - Behavior analysis (Action Distribution, Reward Trends, Policy Entropy)
-  - Multi-view interface (Overview, Training, Behavior, Debug)
+  - Q-value heatmaps overlaid on the environment map
+  - Network internal state visualization (policy distribution, entropy, gradient norms)
+  - Multi-view interface (Overview, Training, Behavior, Debug, Network)
   - Interactive charts with multi-line support
 - ⚙️ **Flexible Configuration**: Support for JSON/YAML configuration files and command-line arguments
 - 🔄 **Algorithm Comparison**: Run multiple algorithms simultaneously for performance comparison
