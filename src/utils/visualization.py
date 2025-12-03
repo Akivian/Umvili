@@ -741,6 +741,506 @@ class MultiLineChart:
             return stats
 
 
+class QValueHeatmapPanel:
+    """
+    Q值热图可视化面板（性能优化版）
+    
+    在环境地图上叠加显示每个位置的Q值，直观展示价值函数。
+    采用增量更新、缓存机制和智能采样来优化性能。
+    """
+    
+    def __init__(self, x: int, y: int, width: int, height: int, font_manager: AcademicFontManager):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.font_manager = font_manager
+        self.padding = {'left': 12, 'right': 12, 'top': 32, 'bottom': 28}
+        
+        # Q值热图数据缓存（按算法类型）
+        self.q_maps: Dict[str, np.ndarray] = {}
+        self.update_counter = 0
+        self.update_frequency = 50  # 每50步更新一次（降低计算频率）
+        
+        # 增量更新机制：每次只更新部分区域
+        self.incremental_update = True
+        self.update_region_index = 0  # 当前更新的区域索引
+        self.update_regions = 4  # 将环境分为4个区域，每次更新一个
+        
+        # 预渲染的surface缓存（避免每帧重新计算）
+        self.cached_overlay: Optional[pygame.Surface] = None
+        self.cached_q_map: Optional[np.ndarray] = None
+        self.cached_agent_type: Optional[str] = None
+        
+        # 智能采样：只在智能体附近详细计算
+        self.smart_sampling = True
+        self.detailed_radius = 10  # 智能体周围详细计算的半径
+        self.coarse_sample_density = 4  # 远离智能体区域的采样密度
+        
+        # 显示开关
+        self.enabled = False  # 默认关闭，需要用户手动开启
+        
+        # 开关按钮rect（在draw时设置）
+        self.toggle_rect: Optional[pygame.Rect] = None
+        
+    def update(self, agents_by_type: Dict[str, List[Any]], environment: Any) -> None:
+        """
+        更新Q值热图数据（性能优化版）
+        
+        采用增量更新策略：每次只更新部分区域，避免一次性计算整个环境。
+        """
+        if not self.enabled:
+            return
+        
+        self.update_counter += 1
+        
+        # 为每种学习型算法计算Q值热图
+        for agent_type, agents in agents_by_type.items():
+            if not agents or agent_type not in ['iql', 'independent_q_learning', 'qmix']:
+                continue
+            
+            # 使用第一个智能体作为代表
+            representative_agent = None
+            for agent in agents:
+                if hasattr(agent, 'get_q_value_map') and hasattr(agent, 'q_network') and agent.q_network is not None:
+                    representative_agent = agent
+                    break
+            
+            if representative_agent is None:
+                continue
+            
+            try:
+                # 初始化Q值图（如果不存在）
+                if agent_type not in self.q_maps:
+                    grid_size = getattr(environment, 'size', 80)
+                    self.q_maps[agent_type] = np.zeros((grid_size, grid_size), dtype=np.float32)
+                
+                q_map = self.q_maps[agent_type]
+                grid_size = q_map.shape[0]
+                
+                # 增量更新策略
+                if self.incremental_update and self.update_counter % (self.update_frequency // self.update_regions) == 0:
+                    # 每次只更新一个区域
+                    region_size = grid_size // self.update_regions
+                    start_x = (self.update_region_index % self.update_regions) * region_size
+                    end_x = min(start_x + region_size, grid_size)
+                    
+                    # 更新该区域的Q值
+                    self._update_region(representative_agent, environment, q_map, start_x, end_x, grid_size)
+                    
+                    # 移动到下一个区域
+                    self.update_region_index = (self.update_region_index + 1) % self.update_regions
+                elif self.update_counter % self.update_frequency == 0:
+                    # 完整更新（每N次增量更新后进行一次完整更新）
+                    if self.smart_sampling:
+                        # 智能采样：在智能体附近详细计算，远离区域粗略采样
+                        self._update_with_smart_sampling(representative_agent, environment, q_map, agents)
+                    else:
+                        # 标准采样
+                        full_map = representative_agent.get_q_value_map(environment, sample_density=3)
+                        if full_map is not None and full_map.size > 0:
+                            self.q_maps[agent_type] = full_map
+                
+                # 清除缓存（如果数据已更新）
+                if agent_type != self.cached_agent_type:
+                    self.cached_overlay = None
+                    self.cached_q_map = None
+                    self.cached_agent_type = agent_type
+                    
+            except Exception as e:
+                print(f"Error updating Q-value map for {agent_type}: {e}")
+                continue
+    
+    def _update_region(self, agent: Any, environment: Any, q_map: np.ndarray, 
+                      start_x: int, end_x: int, grid_size: int) -> None:
+        """更新指定区域的Q值"""
+        original_x, original_y = agent.x, agent.y
+        
+        try:
+            for x in range(start_x, end_x):
+                for y in range(0, grid_size, 3):  # 采样密度3
+                    agent.x, agent.y = x, y
+                    observation = agent.observe(environment)
+                    q_values = agent.get_q_values(observation)
+                    q_map[x, y] = np.max(q_values) if len(q_values) > 0 else 0.0
+                    
+                    # 填充周围区域
+                    for dx in range(3):
+                        for dy in range(3):
+                            nx, ny = x + dx, y + dy
+                            if 0 <= nx < grid_size and 0 <= ny < grid_size:
+                                q_map[nx, ny] = q_map[x, y]
+        finally:
+            agent.x, agent.y = original_x, original_y
+    
+    def _update_with_smart_sampling(self, agent: Any, environment: Any, 
+                                   q_map: np.ndarray, agents: List[Any]) -> None:
+        """使用智能采样更新Q值图：在智能体附近详细计算，远离区域粗略采样"""
+        grid_size = q_map.shape[0]
+        original_x, original_y = agent.x, agent.y
+        
+        try:
+            # 计算智能体的平均位置（用于确定详细计算区域）
+            agent_positions = [(a.x, a.y) for a in agents if hasattr(a, 'x') and hasattr(a, 'y')]
+            if not agent_positions:
+                return
+            
+            avg_x = int(np.mean([pos[0] for pos in agent_positions]))
+            avg_y = int(np.mean([pos[1] for pos in agent_positions]))
+            
+            # 遍历环境
+            for x in range(0, grid_size, self.coarse_sample_density):
+                for y in range(0, grid_size, self.coarse_sample_density):
+                    # 计算到智能体平均位置的距离
+                    dist = np.sqrt((x - avg_x)**2 + (y - avg_y)**2)
+                    
+                    # 在智能体附近使用更密集的采样
+                    if dist < self.detailed_radius:
+                        sample_density = 1  # 详细采样
+                    else:
+                        sample_density = self.coarse_sample_density  # 粗略采样
+                    
+                    if x % sample_density == 0 and y % sample_density == 0:
+                        agent.x, agent.y = x, y
+                        observation = agent.observe(environment)
+                        q_values = agent.get_q_values(observation)
+                        q_val = np.max(q_values) if len(q_values) > 0 else 0.0
+                        
+                        # 填充周围区域
+                        for dx in range(sample_density):
+                            for dy in range(sample_density):
+                                nx, ny = x + dx, y + dy
+                                if 0 <= nx < grid_size and 0 <= ny < grid_size:
+                                    q_map[nx, ny] = q_val
+        finally:
+            agent.x, agent.y = original_x, original_y
+    
+    def draw(self, screen: pygame.Surface, grid_size: int, cell_size: int, 
+             env_x: int = 0, env_y: int = 0) -> None:
+        """
+        绘制Q值热图叠加在环境地图上（使用缓存优化性能）
+        
+        Args:
+            screen: Pygame surface
+            grid_size: 网格大小
+            cell_size: 单元格大小
+            env_x, env_y: 环境地图的左上角坐标
+        """
+        # 即使未启用，也显示开关按钮（让用户可以开启）
+        # 在右上角显示图例（包含开关按钮）
+        legend_x = env_x + grid_size * cell_size - 150
+        legend_y = env_y + 10
+        legend_rect = pygame.Rect(legend_x, legend_y, 140, 90)  # 增加高度以容纳开关
+        pygame.draw.rect(screen, COLORS['CHART_BG'], legend_rect)
+        pygame.draw.rect(screen, COLORS['PANEL_BORDER'], legend_rect, 1)
+        
+        # 图例标题
+        agent_type_label = "IQL/QMIX"  # 默认标签
+        if self.q_maps:
+            for agent_type in self.q_maps.keys():
+                agent_type_label = 'IQL' if 'iql' in agent_type else 'QMIX'
+                break
+        
+        title_text = self.font_manager.render_text(
+            f"Q-Value Heatmap ({agent_type_label})", 'TINY', COLORS['TEXT_PRIMARY']
+        )
+        screen.blit(title_text, (legend_x + 5, legend_y + 5))
+        
+        # 开关按钮（始终显示）
+        toggle_x = legend_x + 5
+        toggle_y = legend_y + 20
+        toggle_width = 130
+        toggle_height = 20
+        self.toggle_rect = pygame.Rect(toggle_x, toggle_y, toggle_width, toggle_height)
+        
+        # 按钮状态颜色
+        mouse_pos = pygame.mouse.get_pos()
+        if self.toggle_rect.collidepoint(mouse_pos):
+            toggle_bg = COLORS['BUTTON_HOVER']
+        else:
+            toggle_bg = COLORS['BUTTON_NORMAL']
+        
+        if self.enabled:
+            toggle_text = "● Hide Heatmap"
+            toggle_text_color = COLORS['SUCCESS']
+        else:
+            toggle_text = "○ Show Heatmap"
+            toggle_text_color = COLORS['TEXT_SECONDARY']
+        
+        pygame.draw.rect(screen, toggle_bg, self.toggle_rect, border_radius=3)
+        pygame.draw.rect(screen, COLORS['PANEL_BORDER'], self.toggle_rect, 1, border_radius=3)
+        
+        toggle_text_surface = self.font_manager.render_text(toggle_text, 'TINY', toggle_text_color)
+        text_rect = toggle_text_surface.get_rect(center=self.toggle_rect.center)
+        screen.blit(toggle_text_surface, text_rect)
+        
+        # 如果未启用，不绘制热图，只显示开关
+        if not self.enabled or not self.q_maps:
+            return
+        
+        try:
+            # 选择第一个可用的Q值热图
+            q_map = None
+            agent_type_label = None
+            current_agent_type = None
+            for agent_type, map_data in self.q_maps.items():
+                if map_data is not None and map_data.size > 0:
+                    q_map = map_data
+                    agent_type_label = 'IQL' if 'iql' in agent_type else 'QMIX'
+                    current_agent_type = agent_type
+                    break
+            
+            if q_map is None:
+                return
+            
+            # 检查缓存是否有效
+            cache_valid = (self.cached_overlay is not None and 
+                          self.cached_q_map is not None and
+                          np.array_equal(self.cached_q_map, q_map) and
+                          self.cached_agent_type == current_agent_type)
+            
+            if not cache_valid:
+                # 重新计算并缓存overlay
+                self._rebuild_overlay(q_map, grid_size, cell_size)
+                self.cached_q_map = q_map.copy()
+                self.cached_agent_type = current_agent_type
+            
+            # 使用缓存的overlay绘制
+            if self.cached_overlay is not None:
+                screen.blit(self.cached_overlay, (env_x, env_y))
+            
+            # 颜色条和数值标签（仅在启用且有数据时显示）
+            if self.enabled and self.q_maps:
+                bar_width = 120
+                bar_height = 8
+                bar_x = legend_x + 10
+                bar_y = legend_y + 45
+                for i in range(bar_width):
+                    val = i / bar_width
+                    if val < 0.5:
+                        r, g, b = 0, int(255 * val * 2), int(255 * (1 - val * 2))
+                    else:
+                        r, g, b = int(255 * (val - 0.5) * 2), int(255 * (1 - (val - 0.5) * 2)), 0
+                    pygame.draw.line(
+                        screen,
+                        (r, g, b),
+                        (bar_x + i, bar_y),
+                        (bar_x + i, bar_y + bar_height)
+                    )
+                
+                # 数值标签（使用缓存的值）
+                q_min = getattr(self, 'cached_q_min', 0.0)
+                q_max = getattr(self, 'cached_q_max', 0.0)
+                min_text = self.font_manager.render_text(
+                    f"Min: {q_min:.2f}", 'TINY', COLORS['TEXT_SECONDARY']
+                )
+                max_text = self.font_manager.render_text(
+                    f"Max: {q_max:.2f}", 'TINY', COLORS['TEXT_SECONDARY']
+                )
+                screen.blit(min_text, (bar_x, bar_y + bar_height + 5))
+                screen.blit(max_text, (bar_x + bar_width - max_text.get_width(), bar_y + bar_height + 5))
+            
+        except Exception as e:
+            print(f"Error drawing Q-value heatmap: {e}")
+    
+    def _rebuild_overlay(self, q_map: np.ndarray, grid_size: int, cell_size: int) -> None:
+        """重建overlay surface（仅在数据变化时调用）"""
+        # 归一化Q值到[0, 1]范围用于颜色映射
+        q_min, q_max = np.min(q_map), np.max(q_map)
+        if q_max - q_min < 1e-6:
+            normalized_q = np.zeros_like(q_map)
+        else:
+            normalized_q = (q_map - q_min) / (q_max - q_min)
+        
+        # 使用半透明叠加显示Q值
+        alpha = 120  # 透明度（0-255）
+        
+        # 创建临时surface用于叠加
+        overlay = pygame.Surface((grid_size * cell_size, grid_size * cell_size))
+        overlay.set_alpha(alpha)
+        overlay.fill((0, 0, 0, 0))  # 透明背景
+        
+        # 优化：使用NumPy批量计算颜色，然后一次性绘制
+        # 创建颜色数组
+        colors = np.zeros((grid_size, grid_size, 3), dtype=np.uint8)
+        
+        # 批量计算颜色
+        mask_low = normalized_q < 0.5
+        mask_high = ~mask_low
+        
+        # 低值区域（蓝色到绿色）
+        colors[mask_low, 0] = 0
+        colors[mask_low, 1] = (normalized_q[mask_low] * 2 * 255).astype(np.uint8)
+        colors[mask_low, 2] = ((1 - normalized_q[mask_low] * 2) * 255).astype(np.uint8)
+        
+        # 高值区域（绿色到红色）
+        colors[mask_high, 0] = ((normalized_q[mask_high] - 0.5) * 2 * 255).astype(np.uint8)
+        colors[mask_high, 1] = ((1 - (normalized_q[mask_high] - 0.5) * 2) * 255).astype(np.uint8)
+        colors[mask_high, 2] = 0
+        
+        # 绘制（优化：只绘制非零区域）
+        for x in range(grid_size):
+            for y in range(grid_size):
+                if x < q_map.shape[0] and y < q_map.shape[1]:
+                    color = tuple(colors[x, y])
+                    pygame.draw.rect(
+                        overlay,
+                        color,
+                        (y * cell_size, x * cell_size, cell_size, cell_size)
+                    )
+        
+        self.cached_overlay = overlay
+        self.cached_q_min = q_min
+        self.cached_q_max = q_max
+
+
+class NetworkStatePanel:
+    """
+    网络内部状态可视化面板
+    
+    显示策略网络对不同状态的动作概率分布、隐藏层激活模式等。
+    """
+    
+    def __init__(self, x: int, y: int, width: int, height: int, font_manager: AcademicFontManager):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.font_manager = font_manager
+        self.padding = {'left': 12, 'right': 12, 'top': 32, 'bottom': 28}
+        
+        # 网络状态数据缓存
+        self.network_states: Dict[str, Dict[str, Any]] = {}
+        self.update_counter = 0
+        self.update_frequency = 10  # 每10步更新一次
+        
+    def update(self, agents_by_type: Dict[str, List[Any]], environment: Any) -> None:
+        """更新网络状态数据"""
+        self.update_counter += 1
+        if self.update_counter % self.update_frequency != 0:
+            return
+        
+        self.network_states.clear()
+        
+        # 为每种学习型算法获取网络状态
+        for agent_type, agents in agents_by_type.items():
+            if not agents or agent_type not in ['iql', 'independent_q_learning', 'qmix']:
+                continue
+            
+            # 使用第一个智能体作为代表
+            representative_agent = None
+            for agent in agents:
+                if hasattr(agent, 'get_network_state') and hasattr(agent, 'q_network') and agent.q_network is not None:
+                    representative_agent = agent
+                    break
+            
+            if representative_agent is None:
+                continue
+            
+            try:
+                # 获取当前观察
+                observation = representative_agent.observe(environment)
+                
+                # 获取网络状态
+                network_state = representative_agent.get_network_state(observation)
+                if network_state:
+                    self.network_states[agent_type] = network_state
+            except Exception as e:
+                print(f"Error getting network state for {agent_type}: {e}")
+                continue
+    
+    def draw(self, screen: pygame.Surface) -> None:
+        """绘制网络状态面板"""
+        try:
+            pygame.draw.rect(screen, COLORS['CHART_BG'], self.rect)
+            pygame.draw.rect(screen, COLORS['PANEL_BORDER'], self.rect, 1)
+            
+            # 标题
+            title_surface = self.font_manager.render_text(
+                "Network Internal State", 'SMALL', COLORS['TEXT_PRIMARY']
+            )
+            screen.blit(title_surface, (self.rect.x + self.padding['left'], self.rect.y + 8))
+            
+            if not self.network_states:
+                empty_text = self.font_manager.render_text(
+                    "No network state data", 'TINY', COLORS['TEXT_MUTED']
+                )
+                text_rect = empty_text.get_rect(center=self.rect.center)
+                screen.blit(empty_text, text_rect)
+                return
+            
+            # 绘制每个算法的网络状态
+            y_offset = self.rect.y + self.padding['top'] + 10
+            row_height = 80
+            
+            for agent_type, state in self.network_states.items():
+                if y_offset + row_height > self.rect.y + self.rect.height - self.padding['bottom']:
+                    break
+                
+                # 算法标签
+                agent_label = 'IQL' if 'iql' in agent_type else 'QMIX'
+                label_color = COLORS['AGENT_IQL'] if 'iql' in agent_type else COLORS['AGENT_QMIX']
+                
+                label_text = self.font_manager.render_text(
+                    f"{agent_label} Network State", 'TINY', label_color
+                )
+                screen.blit(label_text, (self.rect.x + self.padding['left'], y_offset))
+                
+                # 策略分布条形图
+                if 'policy' in state and len(state['policy']) > 0:
+                    policy = state['policy']
+                    bar_width = 15
+                    bar_spacing = 2
+                    chart_x = self.rect.x + self.padding['left']
+                    chart_y = y_offset + 20
+                    chart_width = self.rect.width - self.padding['left'] - self.padding['right']
+                    chart_height = 30
+                    
+                    max_policy = np.max(policy) if len(policy) > 0 else 1.0
+                    
+                    for i, prob in enumerate(policy):
+                        if i * (bar_width + bar_spacing) > chart_width:
+                            break
+                        
+                        bar_height = int((prob / max_policy) * chart_height) if max_policy > 0 else 0
+                        bar_x = chart_x + i * (bar_width + bar_spacing)
+                        bar_y = chart_y + chart_height - bar_height
+                        
+                        # 使用算法颜色
+                        pygame.draw.rect(
+                            screen,
+                            label_color,
+                            (bar_x, bar_y, bar_width, bar_height)
+                        )
+                        pygame.draw.rect(
+                            screen,
+                            COLORS['PANEL_BORDER'],
+                            (bar_x, bar_y, bar_width, bar_height),
+                            1
+                        )
+                    
+                    # 策略熵值
+                    if len(policy) > 0:
+                        entropy = -np.sum(policy * np.log(policy + 1e-10))
+                        entropy_text = self.font_manager.render_text(
+                            f"Policy Entropy: {entropy:.3f}", 'TINY', COLORS['TEXT_SECONDARY']
+                        )
+                        screen.blit(entropy_text, (chart_x, chart_y + chart_height + 5))
+                
+                # Q值信息
+                if 'q_values' in state and len(state['q_values']) > 0:
+                    q_values = state['q_values']
+                    max_q = np.max(q_values)
+                    min_q = np.min(q_values)
+                    avg_q = np.mean(q_values)
+                    
+                    q_info_text = self.font_manager.render_text(
+                        f"Q: avg={avg_q:.2f}, max={max_q:.2f}, min={min_q:.2f}",
+                        'TINY',
+                        COLORS['TEXT_SECONDARY']
+                    )
+                    screen.blit(q_info_text, (self.rect.x + self.padding['left'], y_offset + 60))
+                
+                y_offset += row_height + 10
+            
+        except Exception as e:
+            print(f"Error drawing network state panel: {e}")
+
+
 class ActionDistributionPanel:
     """
     动作分布可视化面板。
@@ -963,9 +1463,12 @@ class ActionDistributionPanel:
                 return
 
             # 在柱状图区绘制简单的 Y 轴参考线（0%、50%、100%），帮助理解“高度代表频率”
+            # 这里原本使用了 COLORS['GRID_MINOR'] / COLORS['GRID_MAJOR']，但这些键在全局调色板中不存在，
+            # 会导致 KeyError。改为复用已有的网格和边框颜色，既保持风格统一，又避免运行时错误。
             for frac, label in [(0.0, "0%"), (0.5, "50%"), (1.0, "100%")]:
                 y = chart_area.bottom - int(frac * chart_area.height)
-                color = COLORS['GRID_MINOR'] if frac not in (0.0, 1.0) else COLORS['GRID_MAJOR']
+                # 中间参考线使用图表网格颜色，两端（0%、100%）使用面板边框颜色以强调边界
+                color = COLORS['CHART_GRID'] if frac not in (0.0, 1.0) else COLORS['PANEL_BORDER']
                 pygame.draw.line(screen, color, (chart_area.x, y), (chart_area.right, y), 1)
 
                 tick_text = self.font_manager.render_text(label, 'TINY', COLORS['TEXT_SECONDARY'])
@@ -1709,6 +2212,24 @@ class AcademicVisualizationSystem:
             220,
             self.font_manager,
         )
+        
+        # Q值热图面板（叠加在环境地图上）
+        self.q_value_heatmap = QValueHeatmapPanel(
+            0, 0, 0, 0, self.font_manager  # 位置和大小在draw时动态确定
+        )
+        
+        # Q值热图开关按钮（在Behavior视图的图例区域）
+        self.q_heatmap_toggle_rect: Optional[pygame.Rect] = None
+        
+        # 网络状态面板（在Behavior视图中显示）
+        network_state_y = self.charts_top + 220 + 12  # 在动作分布面板下方
+        self.network_state_panel = NetworkStatePanel(
+            panel_x + 15,
+            network_state_y,
+            panel_width - 30,
+            200,
+            self.font_manager,
+        )
     
     def get_screen_info(self) -> Tuple[int, int]:
         """Get screen dimensions"""
@@ -1949,6 +2470,7 @@ class AcademicVisualizationSystem:
             screen.fill(COLORS['BACKGROUND'])
             
             # Draw environment - ensure we get the actual sugar_map
+            env_x, env_y = 0, 0
             if 'environment' in simulation_data:
                 env_data = simulation_data['environment']
                 sugar_map = env_data.get('sugar_map')
@@ -1968,6 +2490,26 @@ class AcademicVisualizationSystem:
                 agents = simulation_data['agents']
                 if agents and len(agents) > 0:
                     self.simulation_renderer.draw_agents(screen, agents)
+            
+            # Update and draw Q-value heatmap (overlay on environment) - only in behavior view
+            if self.active_view == "behavior":
+                simulation = simulation_data.get('simulation')
+                if simulation is not None:
+                    # Group agents by type
+                    agents_by_type: Dict[str, List[Any]] = {}
+                    for agent in simulation.agent_manager.agents:
+                        agent_type = agent.agent_type.value
+                        if agent_type not in agents_by_type:
+                            agents_by_type[agent_type] = []
+                        agents_by_type[agent_type].append(agent)
+                    
+                    environment = simulation.environment
+                    if environment is not None:
+                        # 更新Q值热图数据（即使未启用也更新，以便快速响应开关）
+                        if self.q_value_heatmap.enabled:
+                            self.q_value_heatmap.update(agents_by_type, environment)
+                        # 绘制Q值热图和开关按钮（开关按钮始终显示）
+                        self.q_value_heatmap.draw(screen, self.grid_size, self.cell_size, env_x, env_y)
             
             # Prepare UI metrics
             ui_metrics = self._prepare_ui_metrics(simulation_data)
@@ -2011,7 +2553,7 @@ class AcademicVisualizationSystem:
                     self.agent_distribution_panel.draw(screen, agents_by_type, avg_sugar_by_type)
 
             elif self.active_view == "behavior":
-                # 行为视图：Reward Trend + Policy Entropy + 动作分布
+                # 行为视图：Reward Trend + Policy Entropy + 动作分布 + 网络状态
                 self._update_behavior_charts(simulation_data)
 
                 last_bottom = self.charts_top
@@ -2031,6 +2573,26 @@ class AcademicVisualizationSystem:
                     self.action_distribution_panel.rect.height = max(140, min(220, available_height))
 
                     self.action_distribution_panel.draw(screen, action_dist)
+                    
+                    # 更新并绘制网络状态面板（在动作分布面板下方）
+                    # 获取智能体对象（需要从simulation中获取）
+                    simulation = simulation_data.get('simulation')
+                    if simulation is not None:
+                        agents_by_type = {}
+                        for agent in simulation.agent_manager.agents:
+                            agent_type = agent.agent_type.value
+                            if agent_type not in agents_by_type:
+                                agents_by_type[agent_type] = []
+                            agents_by_type[agent_type].append(agent)
+                        
+                        environment = simulation.environment
+                        if environment is not None:
+                            self.network_state_panel.update(agents_by_type, environment)
+                    
+                    self.network_state_panel.rect.y = self.action_distribution_panel.rect.bottom + 10
+                    available_height = self.control_panel.rect.bottom - self.network_state_panel.rect.y - 20
+                    self.network_state_panel.rect.height = max(150, min(200, available_height))
+                    self.network_state_panel.draw(screen)
 
             elif self.active_view == "debug":
                 # 调试视图：展示简单的性能信息，从 charts_top 开始绘制
@@ -2264,16 +2826,29 @@ class AcademicVisualizationSystem:
                 entropy_chart.add_data_point_conditional(agent_label, entropy, step)
     
     def handle_event(self, event: pygame.event.Event, simulation: Any) -> bool:
-        """Handle events（视图 Tab 点击 + 控制面板按钮）"""
+        """Handle events（视图 Tab 点击 + 控制面板按钮 + Q值热图开关）"""
         try:
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_pos = event.pos
+                
                 # 先处理视图 Tab 点击
                 for view_id, rect in self.view_tabs:
                     if rect.collidepoint(mouse_pos):
                         self.active_view = view_id
                         return True
-            # 未命中 Tab，则交给控制面板处理
+                
+                # 处理Q值热图开关（仅在Behavior视图）
+                if self.active_view == "behavior":
+                    if hasattr(self.q_value_heatmap, 'toggle_rect') and self.q_value_heatmap.toggle_rect is not None:
+                        if self.q_value_heatmap.toggle_rect.collidepoint(mouse_pos):
+                            self.q_value_heatmap.enabled = not self.q_value_heatmap.enabled
+                            # 如果关闭，清除缓存
+                            if not self.q_value_heatmap.enabled:
+                                self.q_value_heatmap.cached_overlay = None
+                                self.q_value_heatmap.q_maps.clear()
+                            return True
+                
+            # 未命中 Tab 和开关，则交给控制面板处理
             return self.control_panel.handle_event(event, simulation)
         except Exception as e:
             print(f"Visualization system event handling failed: {e}")

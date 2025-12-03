@@ -107,7 +107,12 @@ Umvili/
 **Key Components**:
 - `config.py`: Configuration compatibility layer
 - `logging_config.py`: Logging system configuration
-- `visualization.py`: Visualization system (UI rendering, charts)
+- `visualization.py`: Comprehensive visualization system including:
+  - `MultiLineChart`: Multi-series real-time charting component
+  - `AcademicVisualizationSystem`: Main visualization system with multi-view support
+  - `AgentDistributionPanel`: Agent type and distribution visualization
+  - `ActionDistributionPanel`: Action frequency and behavior analysis
+  - View system: Overview, Training, Behavior, Debug views
 
 ## Design Principles
 
@@ -183,10 +188,35 @@ Full Configuration
 - Legacy configuration formats are automatically converted
 - Gradual migration path for existing code
 
+## Visualization System
+
+### Multi-View Interface
+
+The visualization system supports four distinct views:
+
+1. **Overview**: Environment statistics and agent type distribution
+2. **Training**: Real-time training metrics (Loss, Q-value, TD Error, Exploration Rate)
+3. **Behavior**: Behavior analysis (Action Distribution, Reward Trends, Policy Entropy)
+4. **Debug**: Performance metrics and debugging information
+
+### Chart Components
+
+- **MultiLineChart**: Supports multiple data series with dynamic line management, sliding windows, and performance optimizations
+- **Layout Management**: Grid-based chart positioning to prevent overlaps
+- **Update Frequency Control**: Configurable update rates for different chart types
+
+### Data Collection
+
+- Training metrics collected from agents and trainers
+- Action distribution tracking per algorithm type
+- Real-time performance monitoring
+- Historical data with configurable window sizes
+
 ## Performance Considerations
 
 - Efficient agent creation using factory pattern
-- Optimized visualization rendering
+- Optimized visualization rendering with update frequency control
+- Sliding window data management (200 data points)
 - Configurable performance metrics
 - Support for high-performance simulation modes
 

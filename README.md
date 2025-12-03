@@ -13,10 +13,15 @@ Umvili is a visualization platform for researching and comparing different multi
 ### Key Features
 
 - 🎯 **Multiple Algorithms**: Support for IQL, QMIX, and rule-based agents (conservative, exploratory, adaptive)
-- 📊 **Real-time Visualization**: Dynamic display of agent behavior, sugar distribution, and learning curves
+- 📊 **Advanced Visualization**: 
+  - Real-time training metrics (Loss, Q-value, TD Error, Exploration Rate)
+  - Behavior analysis (Action Distribution, Reward Trends, Policy Entropy)
+  - Multi-view interface (Overview, Training, Behavior, Debug)
+  - Interactive charts with multi-line support
 - ⚙️ **Flexible Configuration**: Support for JSON/YAML configuration files and command-line arguments
 - 🔄 **Algorithm Comparison**: Run multiple algorithms simultaneously for performance comparison
 - 📈 **Performance Monitoring**: Real-time monitoring of FPS, learning progress, and other metrics
+- 🧠 **Deep Learning Integration**: PyTorch-based neural networks with experience replay
 
 ## Installation
 
@@ -90,7 +95,9 @@ For detailed project structure, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - [Architecture Documentation](docs/ARCHITECTURE.md) - Project structure and design
 - [Configuration Guide](docs/CONFIGURATION.md) - Configuration management
 - [Development Guide](docs/DEVELOPMENT.md) - Development setup and guidelines
+- [Version Control Guide](docs/VERSION_CONTROL_GUIDE.md) - Git workflow and best practices
 - [中文文档](docs/zh/README.md) - Chinese documentation
+- [项目路线图](docs/zh/PROJECT_ROADMAP.md) - Chinese project roadmap
 
 ## Configuration
 
@@ -112,8 +119,9 @@ For detailed configuration options, see [docs/CONFIGURATION.md](docs/CONFIGURATI
 
 ### Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
 
+For quick reference:
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
 3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
