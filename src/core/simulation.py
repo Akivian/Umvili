@@ -203,13 +203,59 @@ class MARLSimulation:
         
         logging.info(f"MARL模拟系统初始化完成: 网格大小={grid_size}, 智能体数量={len(self.agent_manager)}")
     
-    def _initialize_environment(self) -> None:
-        """初始化环境"""
+    def _initialize_environment(self, env_config: Optional[Dict[str, Any]] = None) -> None:
+        """
+        初始化环境
+        
+        Args:
+            env_config: 可选的环境配置字典，包含：
+                - spice_growth_rate: Spice 生长速率
+                - max_spice: Spice 最大值
+                - hazard_decay_rate: Hazard 衰减速率
+                - hazard_target_fraction: Hazard 目标覆盖比例
+                - resource_enabled: 资源开关字典 {'sugar': bool, 'spice': bool, 'hazard': bool}
+        """
+        # 默认环境参数
+        spice_growth_rate = 0.02
+        max_spice = 6.0
+        hazard_decay_rate = 0.01
+        hazard_target_fraction = 0.09
+        resource_enabled = {'sugar': True, 'spice': True, 'hazard': True}
+        
+        # 从配置中获取参数
+        if env_config:
+            spice_growth_rate = env_config.get('spice_growth_rate', spice_growth_rate)
+            max_spice = env_config.get('max_spice', max_spice)
+            hazard_decay_rate = env_config.get('hazard_decay_rate', hazard_decay_rate)
+            hazard_target_fraction = env_config.get('hazard_target_fraction', hazard_target_fraction)
+            resource_enabled = env_config.get('resource_enabled', resource_enabled)
+        
+        # 存储资源开关状态（供环境使用）
+        self.resource_enabled = resource_enabled
+        
+        # 创建环境（如果资源被禁用，相关参数会被忽略）
+        # 注意：SugarEnvironment 不接受 hazard_target_fraction 参数，它是环境的内部属性
         self.environment = SugarEnvironment(
             size=self.grid_size,
             growth_rate=self.sugar_growth_rate,
-            max_sugar=self.max_sugar
+            max_sugar=self.max_sugar,
+            spice_growth_rate=spice_growth_rate if resource_enabled.get('spice', True) else 0.0,
+            max_spice=max_spice if resource_enabled.get('spice', True) else 0.0,
+            hazard_decay_rate=hazard_decay_rate if resource_enabled.get('hazard', True) else 0.0,
+            # hazard_penalty_factor 和 hazard_damage_per_step 使用默认值
         )
+        
+        # 如果提供了 hazard_target_fraction，在创建环境后设置它（如果环境支持）
+        if resource_enabled.get('hazard', True) and hasattr(self.environment, 'hazard_target_fraction'):
+            self.environment.hazard_target_fraction = hazard_target_fraction
+        
+        # 如果资源被禁用，清空对应的资源图
+        if not resource_enabled.get('sugar', True):
+            self.environment.sugar_map.fill(0.0)
+        if not resource_enabled.get('spice', True):
+            self.environment.spice_map.fill(0.0)
+        if not resource_enabled.get('hazard', True):
+            self.environment.hazard_map.fill(0.0)
     
     def _initialize_agents(self, agent_configs: Optional[List[Any]] = None) -> None:
         """初始化智能体"""
@@ -305,35 +351,98 @@ class MARLSimulation:
             logging.info("模拟恢复")
     
     def reset(self, new_config: Optional[Dict[str, Any]] = None) -> None:
-        """重置模拟"""
+        """
+        重置模拟
+        
+        Args:
+            new_config: 可选的新配置字典，支持以下字段：
+                - grid_size: 网格大小
+                - cell_size: 单元格大小
+                - initial_agents: 初始智能体数量
+                - sugar_growth_rate: Sugar 生长速率
+                - max_sugar: Sugar 最大值
+                - agent_configs: 智能体配置列表（AgentTypeConfig 对象列表）
+                - spice_growth_rate: Spice 生长速率
+                - max_spice: Spice 最大值
+                - hazard_decay_rate: Hazard 衰减速率
+                - hazard_target_fraction: Hazard 目标覆盖比例
+                - resource_enabled: 资源开关字典 {'sugar': bool, 'spice': bool, 'hazard': bool}
+        """
         logging.info("重置模拟")
         
-        # 更新配置（如果提供）
+        # 暂停当前模拟（如果正在运行）
+        was_running = self.state == SimulationState.RUNNING
+        if was_running:
+            self.state = SimulationState.PAUSED
+        
+        # 提取配置
+        env_config = {}
+        agent_configs = None
+        
         if new_config:
+            # 更新基础配置
             self._update_config(new_config)
+            
+            # 提取环境配置
+            env_config = {
+                'spice_growth_rate': new_config.get('spice_growth_rate', 0.02),
+                'max_spice': new_config.get('max_spice', 6.0),
+                'hazard_decay_rate': new_config.get('hazard_decay_rate', 0.01),
+                'hazard_target_fraction': new_config.get('hazard_target_fraction', 0.09),
+                'resource_enabled': new_config.get('resource_enabled', {
+                    'sugar': True,
+                    'spice': True,
+                    'hazard': True
+                })
+            }
+            
+            # 提取智能体配置
+            agent_configs = new_config.get('agent_configs', None)
         
         # 重置状态
         self.step_count = 0
         self.metrics_history.clear()
+        self.training_metrics.clear()
         
-        # 重新初始化
-        self._initialize_environment()
+        # 清空训练器（如果需要重新创建）
+        # 注意：这里不清空，让外部代码决定是否重新创建训练器
+        
+        # 重新初始化环境
+        self._initialize_environment(env_config)
+        
         # Sync factory grid size with (potentially updated) simulation grid size
         try:
             self.agent_factory.set_grid_size(self.grid_size)
         except Exception:
             pass
-        self._initialize_agents()
+        
+        # 重新初始化智能体
+        self._initialize_agents(agent_configs)
+        
+        # 如果需要，重新注册训练器（由外部代码处理）
+        # 这里可以添加回调机制，让可视化系统知道需要重新创建训练器
         
         # 自动重新开始模拟，提升交互体验
-        self.state = SimulationState.RUNNING
+        if was_running:
+            self.state = SimulationState.RUNNING
+        else:
+            self.state = SimulationState.READY
+        
         self.start_time = time.time()
-        logging.info("模拟重置完成")
+        logging.info(f"模拟重置完成: grid_size={self.grid_size}, agents={len(self.agent_manager)}")
     
     def _update_config(self, config: Dict[str, Any]) -> None:
-        """更新配置"""
+        """
+        更新配置
+        
+        Args:
+            config: 配置字典，只更新模拟对象已有的属性
+        """
+        # 基础配置字段
+        basic_fields = ['grid_size', 'cell_size', 'initial_agents', 'sugar_growth_rate', 'max_sugar']
+        
         for key, value in config.items():
-            if hasattr(self, key):
+            if key in basic_fields and hasattr(self, key):
                 setattr(self, key, value)
     
     def update(self) -> bool:

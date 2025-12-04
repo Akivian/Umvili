@@ -2185,6 +2185,131 @@ class AcademicControlPanel:
             return False
 
 
+class ExperimentConfigPanel:
+    """
+    Experiment Configuration Panel
+    
+    Provides UI for configuring simulation parameters, agent settings, and algorithm parameters.
+    This is the foundation for Phase 8 interactive experiment configuration system.
+    """
+    
+    def __init__(self, rect: pygame.Rect, font_manager: AcademicFontManager):
+        """
+        Initialize experiment configuration panel
+        
+        Args:
+            rect: Panel rectangle
+            font_manager: Font manager for text rendering
+        """
+        self.rect = rect
+        self.font_manager = font_manager
+        self.padding = {'left': 15, 'right': 15, 'top': 20, 'bottom': 20}
+        
+        # Panel sections (will be populated with UI components)
+        self.sections: Dict[str, Any] = {}
+        self.ui_components: Dict[str, Any] = {}
+        
+        # Scroll support
+        self.scroll_offset = 0
+        self.max_scroll = 0
+        
+        # Initialize UI components (placeholder - will be expanded)
+        self._initialize_ui_components()
+    
+    def _initialize_ui_components(self) -> None:
+        """Initialize UI components (placeholder for now)"""
+        # This will be populated with actual UI components in next phase
+        # For now, just create a placeholder structure
+        pass
+    
+    def draw(self, screen: pygame.Surface) -> None:
+        """Draw experiment configuration panel"""
+        try:
+            # Panel background
+            pygame.draw.rect(screen, COLORS['PANEL_BG'], self.rect)
+            pygame.draw.rect(screen, COLORS['PANEL_BORDER'], self.rect, 1)
+            
+            # Title
+            title_text = "Experiment Configuration"
+            title_surface = self.font_manager.render_text(title_text, 'HEADING', COLORS['TEXT_PRIMARY'])
+            title_x = self.rect.x + self.padding['left']
+            title_y = self.rect.y + self.padding['top']
+            screen.blit(title_surface, (title_x, title_y))
+            
+            # Placeholder message
+            placeholder_y = title_y + title_surface.get_height() + 30
+            placeholder_text = "Configuration panels will be implemented here"
+            placeholder_surface = self.font_manager.render_text(placeholder_text, 'BODY', COLORS['TEXT_MUTED'])
+            screen.blit(placeholder_surface, (title_x, placeholder_y))
+            
+            # Draw UI components (when implemented)
+            for component in self.ui_components.values():
+                if hasattr(component, 'draw'):
+                    component.draw(screen)
+        
+        except Exception as e:
+            print(f"Error drawing experiment config panel: {e}")
+    
+    def handle_event(self, event: pygame.event.Event) -> bool:
+        """
+        Handle events for experiment panel
+        
+        Args:
+            event: Pygame event
+            
+        Returns:
+            True if event was handled, False otherwise
+        """
+        try:
+            # Handle UI component events
+            for component in self.ui_components.values():
+                if hasattr(component, 'handle_event'):
+                    if component.handle_event(event):
+                        return True
+            
+            # Handle scroll events
+            if event.type == pygame.MOUSEWHEEL:
+                if self.rect.collidepoint(pygame.mouse.get_pos()):
+                    self.scroll_offset += event.y * 20
+                    self.scroll_offset = max(0, min(self.scroll_offset, self.max_scroll))
+                    return True
+            
+            return False
+        
+        except Exception as e:
+            print(f"Error handling experiment panel event: {e}")
+            return False
+    
+    def get_config(self) -> Dict[str, Any]:
+        """
+        Get current configuration from UI components
+        
+        Returns:
+            Configuration dictionary
+        """
+        config = {}
+        
+        # Collect values from UI components
+        for key, component in self.ui_components.items():
+            if hasattr(component, 'get_value'):
+                config[key] = component.get_value()
+        
+        return config
+    
+    def load_config(self, config: Dict[str, Any]) -> None:
+        """
+        Load configuration into UI components
+        
+        Args:
+            config: Configuration dictionary
+        """
+        for key, value in config.items():
+            if key in self.ui_components:
+                component = self.ui_components[key]
+                if hasattr(component, 'set_value'):
+                    component.set_value(value)
+
+
 class AcademicVisualizationSystem:
     """Academic Professional Visualization System"""
     
@@ -2204,11 +2329,14 @@ class AcademicVisualizationSystem:
         panel_height = screen_height - 20
         self.control_panel = AcademicControlPanel(panel_x, 10, panel_width, panel_height)
 
-        # 视图系统：Overview / Training / Behavior / Debug
-        self.views = ["overview", "training", "behavior", "debug"]
+        # 视图系统：Overview / Training / Behavior / Debug / Experiment
+        self.views = ["overview", "training", "behavior", "debug", "experiment"]
         self.active_view = "training"  # 默认以训练视图为主
         self.view_tabs = []  # List[Tuple[view_id, rect]]
         self.view_tab_rects: Dict[str, pygame.Rect] = {}
+        
+        # Experiment Tab 配置面板
+        self.experiment_panel: Optional['ExperimentConfigPanel'] = None
 
         # 统一的训练图表配置（性能相关）
         self.training_chart_max_points = 200
@@ -2384,6 +2512,7 @@ class AcademicVisualizationSystem:
             "training": "Training",
             "behavior": "Behavior",
             "debug": "Debug",
+            "experiment": "Experiment",
         }
         tab_width = 90
         tab_height = self.view_tab_height
@@ -2396,10 +2525,23 @@ class AcademicVisualizationSystem:
         self.view_tab_rects.clear()
 
         for view_id in self.views:
-            rect = pygame.Rect(x, y, tab_width, tab_height)
+            label = tab_labels.get(view_id, view_id.title())
+            # Experiment tab 稍宽一些
+            width = 100 if view_id == "experiment" else tab_width
+            rect = pygame.Rect(x, y, width, tab_height)
             self.view_tabs.append((view_id, rect))
             self.view_tab_rects[view_id] = rect
-            x += tab_width + spacing
+            x += width + spacing
+        
+        # 初始化 Experiment 配置面板
+        experiment_panel_x = panel_x
+        experiment_panel_y = y + tab_height + self.view_tab_margin
+        experiment_panel_width = self.control_panel.rect.width
+        experiment_panel_height = self.screen_height - experiment_panel_y - 10
+        self.experiment_panel = ExperimentConfigPanel(
+            rect=pygame.Rect(experiment_panel_x, experiment_panel_y, experiment_panel_width, experiment_panel_height),
+            font_manager=self.font_manager
+        )
 
     def _draw_view_tabs(self, screen: pygame.Surface) -> None:
         """绘制视图切换 Tab"""
@@ -2420,7 +2562,14 @@ class AcademicVisualizationSystem:
             pygame.draw.rect(screen, bg_color, rect, border_radius=4)
             pygame.draw.rect(screen, COLORS['PANEL_BORDER'], rect, 1, border_radius=4)
 
-            label = view_id.capitalize()
+            tab_labels = {
+                "overview": "Overview",
+                "training": "Training",
+                "behavior": "Behavior",
+                "debug": "Debug",
+                "experiment": "Experiment",
+            }
+            label = tab_labels.get(view_id, view_id.title())
             text_surface = self.font_manager.render_text(label, 'TINY', text_color)
             text_rect = text_surface.get_rect(center=rect.center)
             screen.blit(text_surface, text_rect)
@@ -2696,6 +2845,11 @@ class AcademicVisualizationSystem:
                     self.network_state_panel.rect.height = max(150, min(200, available_height))
                     self.network_state_panel.draw(screen)
 
+            elif self.active_view == "experiment":
+                # Experiment 视图：配置面板
+                if self.experiment_panel:
+                    self.experiment_panel.draw(screen)
+            
             elif self.active_view == "debug":
                 # 调试视图：展示简单的性能信息，从 charts_top 开始绘制
                 if 'performance' in simulation_data:
@@ -2938,6 +3092,12 @@ class AcademicVisualizationSystem:
                     if rect.collidepoint(mouse_pos):
                         self.active_view = view_id
                         return True
+                
+                # 处理 Experiment 视图事件
+                if self.active_view == "experiment":
+                    if self.experiment_panel:
+                        if self.experiment_panel.handle_event(event):
+                            return True
                 
                 # 处理Q值热图开关（仅在Behavior视图）
                 if self.active_view == "behavior":
