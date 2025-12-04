@@ -123,87 +123,20 @@ class ConfigBuilder:
         
         agent_params = {}
         
-        # Handle Mixed mode
-        if algorithm_mode == 'mixed':
-            # Check which algorithms are enabled
-            if ui_controls.get('mixed_iql_enabled', True):
-                iql_params = self._collect_iql_params(ui_controls)
-                iql_params['count'] = ui_controls.get('mixed_iql_count', 15)
-                agent_params['iql'] = iql_params
-            
-            if ui_controls.get('mixed_qmix_enabled', True):
-                qmix_params = self._collect_qmix_params(ui_controls)
-                qmix_params['count'] = ui_controls.get('mixed_qmix_count', 15)
-                agent_params['qmix'] = qmix_params
-            
-            if ui_controls.get('mixed_rule_enabled', False):
-                rule_params = self._collect_rule_based_params(ui_controls)
-                rule_params['count'] = ui_controls.get('mixed_rule_count', 10)
-                agent_params['rule_based'] = rule_params
+        # Collect IQL parameters
+        if algorithm_mode in ['iql_only', 'iql_qmix', 'mixed', 'custom']:
+            agent_params['iql'] = self._collect_iql_params(ui_controls)
         
-        # Handle Custom mode
-        elif algorithm_mode == 'custom':
-            # IQL
-            if ui_controls.get('custom_iql_enabled', False):
-                iql_params = self._collect_iql_params(ui_controls)
-                iql_params['count'] = ui_controls.get('custom_iql_count', 0)
-                if iql_params['count'] > 0:
-                    agent_params['iql'] = iql_params
-            
-            # QMIX
-            if ui_controls.get('custom_qmix_enabled', False):
-                qmix_params = self._collect_qmix_params(ui_controls)
-                qmix_params['count'] = ui_controls.get('custom_qmix_count', 0)
-                if qmix_params['count'] > 0:
-                    agent_params['qmix'] = qmix_params
-            
-            # Rule-based types
-            if ui_controls.get('custom_rule_enabled', False):
-                rule_params = self._collect_rule_based_params(ui_controls, 'rule_based')
-                rule_params['count'] = ui_controls.get('custom_rule_count', 0)
-                if rule_params['count'] > 0:
-                    agent_params['rule_based'] = rule_params
-            
-            if ui_controls.get('custom_conservative_enabled', False):
-                conservative_params = self._collect_rule_based_params(ui_controls, 'conservative')
-                conservative_params['count'] = ui_controls.get('custom_conservative_count', 0)
-                if conservative_params['count'] > 0:
-                    agent_params['conservative'] = conservative_params
-            
-            if ui_controls.get('custom_exploratory_enabled', False):
-                exploratory_params = self._collect_rule_based_params(ui_controls, 'exploratory')
-                exploratory_params['count'] = ui_controls.get('custom_exploratory_count', 0)
-                if exploratory_params['count'] > 0:
-                    agent_params['exploratory'] = exploratory_params
+        # Collect QMIX parameters
+        if algorithm_mode in ['qmix_only', 'iql_qmix', 'mixed', 'custom']:
+            agent_params['qmix'] = self._collect_qmix_params(ui_controls)
         
-        # Handle simple modes
-        else:
-            # Collect IQL parameters
-            if algorithm_mode in ['iql_only', 'iql_qmix']:
-                agent_params['iql'] = self._collect_iql_params(ui_controls)
-                # Auto-distribute counts for simple modes
-                if algorithm_mode == 'iql_only':
-                    agent_params['iql']['count'] = ui_controls.get('total_agents', 50)
-                elif algorithm_mode == 'iql_qmix':
-                    total = ui_controls.get('total_agents', 50)
-                    agent_params['iql']['count'] = total // 2
-                    agent_params['qmix'] = self._collect_qmix_params(ui_controls)
-                    agent_params['qmix']['count'] = total - agent_params['iql']['count']
-            
-            # Collect QMIX parameters
-            elif algorithm_mode == 'qmix_only':
-                agent_params['qmix'] = self._collect_qmix_params(ui_controls)
-                agent_params['qmix']['count'] = ui_controls.get('total_agents', 50)
-            
-            # Collect rule-based parameters
-            elif algorithm_mode == 'baseline_only':
-                total = ui_controls.get('total_agents', 50)
-                agent_params['rule_based'] = self._collect_rule_based_params(ui_controls)
-                agent_params['rule_based']['count'] = total // 2
-                agent_params['conservative'] = self._collect_rule_based_params(ui_controls, 'conservative')
-                agent_params['conservative']['count'] = total // 4
-                agent_params['exploratory'] = self._collect_rule_based_params(ui_controls, 'exploratory')
-                agent_params['exploratory']['count'] = total - agent_params['rule_based']['count'] - agent_params['conservative']['count']
+        # Collect rule-based parameters
+        if algorithm_mode in ['baseline_only', 'mixed', 'custom']:
+            agent_params['rule_based'] = self._collect_rule_based_params(ui_controls)
+            agent_params['conservative'] = self._collect_rule_based_params(ui_controls, 'conservative')
+            agent_params['exploratory'] = self._collect_rule_based_params(ui_controls, 'exploratory')
+            agent_params['adaptive'] = self._collect_rule_based_params(ui_controls, 'adaptive')
         
         return agent_params
     
