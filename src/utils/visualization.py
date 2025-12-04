@@ -2168,20 +2168,42 @@ class AcademicControlPanel:
                 for name, button in self.buttons.items():
                     if button['rect'].collidepoint(mouse_pos):
                         if name == 'play_pause':
-                            if simulation.state.value == "running":
-                                simulation.pause()
-                                button['text'] = 'Resume'
-                            else:
-                                simulation.resume()
-                                button['text'] = 'Pause'
-                            return True
+                            try:
+                                # 使用更安全的状态检查
+                                current_state = simulation.state
+                                if hasattr(current_state, 'value'):
+                                    state_value = current_state.value
+                                else:
+                                    state_value = str(current_state)
+                                
+                                if state_value == "running":
+                                    simulation.pause()
+                                    button['text'] = 'Resume'
+                                else:
+                                    simulation.resume()
+                                    button['text'] = 'Pause'
+                                
+                                return True
+                            except Exception as e:
+                                print(f"Error toggling pause/resume: {e}")
+                                import traceback
+                                traceback.print_exc()
+                                return True  # 即使出错也返回True，避免事件继续传播
                         elif name == 'reset':
-                            simulation.reset()
-                            return True
+                            try:
+                                simulation.reset()
+                                return True
+                            except Exception as e:
+                                print(f"Error resetting simulation: {e}")
+                                import traceback
+                                traceback.print_exc()
+                                return True
             
             return False
         except Exception as e:
             print(f"Event handling failed: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
 
@@ -2193,34 +2215,480 @@ class ExperimentConfigPanel:
     This is the foundation for Phase 8 interactive experiment configuration system.
     """
     
-    def __init__(self, rect: pygame.Rect, font_manager: AcademicFontManager):
+    def __init__(self, rect: pygame.Rect, font_manager: AcademicFontManager, simulation: Optional[Any] = None):
         """
         Initialize experiment configuration panel
         
         Args:
             rect: Panel rectangle
             font_manager: Font manager for text rendering
+            simulation: Optional simulation instance for reading current config
         """
         self.rect = rect
         self.font_manager = font_manager
+        self.simulation = simulation
         self.padding = {'left': 15, 'right': 15, 'top': 20, 'bottom': 20}
+        self.section_spacing = 25
+        self.component_spacing = 20
         
-        # Panel sections (will be populated with UI components)
-        self.sections: Dict[str, Any] = {}
+        # Import UI components
+        from src.utils.ui_components import (
+            Slider, InputBox, Dropdown, Checkbox, ButtonGroup
+        )
+        self.UIComponents = {
+            'Slider': Slider,
+            'InputBox': InputBox,
+            'Dropdown': Dropdown,
+            'Checkbox': Checkbox,
+            'ButtonGroup': ButtonGroup
+        }
+        
+        # Panel sections
+        self.sections: Dict[str, Dict[str, Any]] = {}
         self.ui_components: Dict[str, Any] = {}
+        
+        # Config builder
+        from src.utils.config_builder import ConfigBuilder
+        self.config_builder = ConfigBuilder()
         
         # Scroll support
         self.scroll_offset = 0
         self.max_scroll = 0
         
-        # Initialize UI components (placeholder - will be expanded)
+        # Apply & Reset button
+        self.apply_button_rect: Optional[pygame.Rect] = None
+        self.cancel_button_rect: Optional[pygame.Rect] = None
+        
+        # Initialize UI components
         self._initialize_ui_components()
     
     def _initialize_ui_components(self) -> None:
-        """Initialize UI components (placeholder for now)"""
-        # This will be populated with actual UI components in next phase
-        # For now, just create a placeholder structure
-        pass
+        """Initialize all UI components"""
+        current_y = self.rect.y + self.padding['top'] + 30  # Space for title
+        
+        # 1. Algorithm Combination Selector
+        current_y = self._create_algorithm_selector(current_y)
+        current_y += self.section_spacing
+        
+        # 2. Environment Configuration Panel
+        current_y = self._create_environment_panel(current_y)
+        current_y += self.section_spacing
+        
+        # 3. Algorithm Hyperparameters Panel
+        current_y = self._create_hyperparameters_panel(current_y)
+        current_y += self.section_spacing
+        
+        # 4. Action Buttons
+        self._create_action_buttons(current_y)
+        
+        # Load current configuration if simulation is available
+        if self.simulation:
+            self._load_current_config()
+    
+    def _create_algorithm_selector(self, start_y: int) -> int:
+        """Create algorithm combination selector"""
+        section_title = "Algorithm Combination"
+        title_surface = self.font_manager.render_text(section_title, 'BODY', COLORS['TEXT_PRIMARY'])
+        title_y = start_y
+        self.sections['algorithm'] = {
+            'title_y': title_y,
+            'start_y': title_y + title_surface.get_height() + 10
+        }
+        
+        # Button group for algorithm selection
+        button_group_rect = pygame.Rect(
+            self.rect.x + self.padding['left'],
+            self.sections['algorithm']['start_y'],
+            self.rect.width - self.padding['left'] - self.padding['right'],
+            35
+        )
+        
+        options = [
+            "IQL Only",
+            "QMIX Only",
+            "IQL + QMIX",
+            "Rule-based Baseline",
+            "Mixed",
+            "Custom"
+        ]
+        
+        self.ui_components['algorithm_combination'] = self.UIComponents['ButtonGroup'](
+            rect=button_group_rect,
+            label="",
+            options=options,
+            initial_value="IQL + QMIX",
+            font_manager=self.font_manager
+        )
+        
+        return button_group_rect.bottom + 10
+    
+    def _create_environment_panel(self, start_y: int) -> int:
+        """Create environment configuration panel"""
+        section_title = "Environment Configuration"
+        title_surface = self.font_manager.render_text(section_title, 'BODY', COLORS['TEXT_PRIMARY'])
+        title_y = start_y
+        self.sections['environment'] = {
+            'title_y': title_y,
+            'start_y': title_y + title_surface.get_height() + 10
+        }
+        
+        current_y = self.sections['environment']['start_y']
+        component_width = (self.rect.width - self.padding['left'] - self.padding['right'] - 20) // 2
+        slider_height = 30
+        
+        # Grid Size
+        grid_slider_rect = pygame.Rect(
+            self.rect.x + self.padding['left'],
+            current_y,
+            component_width,
+            slider_height
+        )
+        self.ui_components['grid_size'] = self.UIComponents['Slider'](
+            rect=grid_slider_rect,
+            label="Grid Size",
+            min_value=10,
+            max_value=200,
+            initial_value=80,
+            step=10,
+            font_manager=self.font_manager,
+            value_format="{:.0f}"
+        )
+        
+        # Total Agents
+        agents_slider_rect = pygame.Rect(
+            self.rect.x + self.padding['left'] + component_width + 20,
+            current_y,
+            component_width,
+            slider_height
+        )
+        self.ui_components['total_agents'] = self.UIComponents['Slider'](
+            rect=agents_slider_rect,
+            label="Total Agents",
+            min_value=10,
+            max_value=500,
+            initial_value=50,
+            step=10,
+            font_manager=self.font_manager,
+            value_format="{:.0f}"
+        )
+        current_y += slider_height + self.component_spacing
+        
+        # Sugar Growth Rate
+        sugar_growth_rect = pygame.Rect(
+            self.rect.x + self.padding['left'],
+            current_y,
+            component_width,
+            slider_height
+        )
+        self.ui_components['sugar_growth_rate'] = self.UIComponents['Slider'](
+            rect=sugar_growth_rect,
+            label="Sugar Growth Rate",
+            min_value=0.0,
+            max_value=1.0,
+            initial_value=0.1,
+            step=0.01,
+            font_manager=self.font_manager,
+            value_format="{:.2f}"
+        )
+        
+        # Max Sugar
+        max_sugar_rect = pygame.Rect(
+            self.rect.x + self.padding['left'] + component_width + 20,
+            current_y,
+            component_width,
+            slider_height
+        )
+        self.ui_components['max_sugar'] = self.UIComponents['Slider'](
+            rect=max_sugar_rect,
+            label="Max Sugar",
+            min_value=1.0,
+            max_value=100.0,
+            initial_value=10.0,
+            step=1.0,
+            font_manager=self.font_manager,
+            value_format="{:.1f}"
+        )
+        current_y += slider_height + self.component_spacing
+        
+        # Spice Growth Rate
+        spice_growth_rect = pygame.Rect(
+            self.rect.x + self.padding['left'],
+            current_y,
+            component_width,
+            slider_height
+        )
+        self.ui_components['spice_growth_rate'] = self.UIComponents['Slider'](
+            rect=spice_growth_rect,
+            label="Spice Growth Rate",
+            min_value=0.0,
+            max_value=0.1,
+            initial_value=0.02,
+            step=0.001,
+            font_manager=self.font_manager,
+            value_format="{:.3f}"
+        )
+        
+        # Max Spice
+        max_spice_rect = pygame.Rect(
+            self.rect.x + self.padding['left'] + component_width + 20,
+            current_y,
+            component_width,
+            slider_height
+        )
+        self.ui_components['max_spice'] = self.UIComponents['Slider'](
+            rect=max_spice_rect,
+            label="Max Spice",
+            min_value=1.0,
+            max_value=20.0,
+            initial_value=6.0,
+            step=0.5,
+            font_manager=self.font_manager,
+            value_format="{:.1f}"
+        )
+        current_y += slider_height + self.component_spacing
+        
+        # Resource Type Switches
+        checkbox_y = current_y
+        checkbox_spacing = 25
+        checkbox_width = 150
+        
+        # Sugar checkbox
+        sugar_checkbox_rect = pygame.Rect(
+            self.rect.x + self.padding['left'],
+            checkbox_y,
+            checkbox_width,
+            20
+        )
+        self.ui_components['resource_sugar_enabled'] = self.UIComponents['Checkbox'](
+            rect=sugar_checkbox_rect,
+            label="Sugar",
+            initial_value=True,
+            font_manager=self.font_manager
+        )
+        
+        # Spice checkbox
+        spice_checkbox_rect = pygame.Rect(
+            self.rect.x + self.padding['left'] + checkbox_width + 20,
+            checkbox_y,
+            checkbox_width,
+            20
+        )
+        self.ui_components['resource_spice_enabled'] = self.UIComponents['Checkbox'](
+            rect=spice_checkbox_rect,
+            label="Spice",
+            initial_value=True,
+            font_manager=self.font_manager
+        )
+        
+        # Hazard checkbox
+        hazard_checkbox_rect = pygame.Rect(
+            self.rect.x + self.padding['left'] + (checkbox_width + 20) * 2,
+            checkbox_y,
+            checkbox_width,
+            20
+        )
+        self.ui_components['resource_hazard_enabled'] = self.UIComponents['Checkbox'](
+            rect=hazard_checkbox_rect,
+            label="Hazard",
+            initial_value=True,
+            font_manager=self.font_manager
+        )
+        
+        return checkbox_y + 30
+    
+    def _create_hyperparameters_panel(self, start_y: int) -> int:
+        """Create algorithm hyperparameters panel"""
+        section_title = "Algorithm Hyperparameters"
+        title_surface = self.font_manager.render_text(section_title, 'BODY', COLORS['TEXT_PRIMARY'])
+        title_y = start_y
+        self.sections['hyperparameters'] = {
+            'title_y': title_y,
+            'start_y': title_y + title_surface.get_height() + 10
+        }
+        
+        current_y = self.sections['hyperparameters']['start_y']
+        component_width = (self.rect.width - self.padding['left'] - self.padding['right'] - 20) // 2
+        slider_height = 30
+        
+        # IQL Learning Rate
+        iql_lr_rect = pygame.Rect(
+            self.rect.x + self.padding['left'],
+            current_y,
+            component_width,
+            slider_height
+        )
+        self.ui_components['iql_learning_rate'] = self.UIComponents['Slider'](
+            rect=iql_lr_rect,
+            label="IQL Learning Rate",
+            min_value=0.0001,
+            max_value=0.01,
+            initial_value=0.001,
+            step=0.0001,
+            font_manager=self.font_manager,
+            value_format="{:.4f}"
+        )
+        
+        # IQL Gamma
+        iql_gamma_rect = pygame.Rect(
+            self.rect.x + self.padding['left'] + component_width + 20,
+            current_y,
+            component_width,
+            slider_height
+        )
+        self.ui_components['iql_gamma'] = self.UIComponents['Slider'](
+            rect=iql_gamma_rect,
+            label="IQL Gamma (γ)",
+            min_value=0.5,
+            max_value=0.99,
+            initial_value=0.95,
+            step=0.01,
+            font_manager=self.font_manager,
+            value_format="{:.2f}"
+        )
+        current_y += slider_height + self.component_spacing
+        
+        # IQL Epsilon Start
+        iql_eps_start_rect = pygame.Rect(
+            self.rect.x + self.padding['left'],
+            current_y,
+            component_width,
+            slider_height
+        )
+        self.ui_components['iql_epsilon_start'] = self.UIComponents['Slider'](
+            rect=iql_eps_start_rect,
+            label="IQL Epsilon Start",
+            min_value=0.0,
+            max_value=1.0,
+            initial_value=1.0,
+            step=0.01,
+            font_manager=self.font_manager,
+            value_format="{:.2f}"
+        )
+        
+        # IQL Epsilon End
+        iql_eps_end_rect = pygame.Rect(
+            self.rect.x + self.padding['left'] + component_width + 20,
+            current_y,
+            component_width,
+            slider_height
+        )
+        self.ui_components['iql_epsilon_end'] = self.UIComponents['Slider'](
+            rect=iql_eps_end_rect,
+            label="IQL Epsilon End",
+            min_value=0.0,
+            max_value=0.5,
+            initial_value=0.01,
+            step=0.01,
+            font_manager=self.font_manager,
+            value_format="{:.2f}"
+        )
+        current_y += slider_height + self.component_spacing
+        
+        # QMIX Learning Rate
+        qmix_lr_rect = pygame.Rect(
+            self.rect.x + self.padding['left'],
+            current_y,
+            component_width,
+            slider_height
+        )
+        self.ui_components['qmix_learning_rate'] = self.UIComponents['Slider'](
+            rect=qmix_lr_rect,
+            label="QMIX Learning Rate",
+            min_value=0.0001,
+            max_value=0.01,
+            initial_value=0.0005,
+            step=0.0001,
+            font_manager=self.font_manager,
+            value_format="{:.4f}"
+        )
+        
+        # QMIX Gamma
+        qmix_gamma_rect = pygame.Rect(
+            self.rect.x + self.padding['left'] + component_width + 20,
+            current_y,
+            component_width,
+            slider_height
+        )
+        self.ui_components['qmix_gamma'] = self.UIComponents['Slider'](
+            rect=qmix_gamma_rect,
+            label="QMIX Gamma (γ)",
+            min_value=0.5,
+            max_value=0.99,
+            initial_value=0.99,
+            step=0.01,
+            font_manager=self.font_manager,
+            value_format="{:.2f}"
+        )
+        
+        return current_y + slider_height + 10
+    
+    def _create_action_buttons(self, start_y: int) -> None:
+        """Create Apply & Reset and Cancel buttons"""
+        button_width = 150
+        button_height = 40
+        button_spacing = 20
+        
+        # Apply & Reset button
+        self.apply_button_rect = pygame.Rect(
+            self.rect.x + self.padding['left'],
+            start_y,
+            button_width,
+            button_height
+        )
+        
+        # Cancel button
+        self.cancel_button_rect = pygame.Rect(
+            self.rect.x + self.padding['left'] + button_width + button_spacing,
+            start_y,
+            button_width,
+            button_height
+        )
+    
+    def _load_current_config(self) -> None:
+        """Load current configuration from simulation"""
+        if not self.simulation:
+            return
+        
+        try:
+            # Load basic simulation parameters
+            if hasattr(self.simulation, 'grid_size'):
+                if 'grid_size' in self.ui_components:
+                    self.ui_components['grid_size'].set_value(self.simulation.grid_size)
+            
+            if hasattr(self.simulation, 'sugar_growth_rate'):
+                if 'sugar_growth_rate' in self.ui_components:
+                    self.ui_components['sugar_growth_rate'].set_value(self.simulation.sugar_growth_rate)
+            
+            if hasattr(self.simulation, 'max_sugar'):
+                if 'max_sugar' in self.ui_components:
+                    self.ui_components['max_sugar'].set_value(self.simulation.max_sugar)
+            
+            # Load resource enabled state
+            if hasattr(self.simulation, 'resource_enabled'):
+                resource_enabled = self.simulation.resource_enabled
+                if 'resource_sugar_enabled' in self.ui_components:
+                    self.ui_components['resource_sugar_enabled'].set_value(
+                        resource_enabled.get('sugar', True)
+                    )
+                if 'resource_spice_enabled' in self.ui_components:
+                    self.ui_components['resource_spice_enabled'].set_value(
+                        resource_enabled.get('spice', True)
+                    )
+                if 'resource_hazard_enabled' in self.ui_components:
+                    self.ui_components['resource_hazard_enabled'].set_value(
+                        resource_enabled.get('hazard', True)
+                    )
+            
+            # Load environment parameters if available
+            if hasattr(self.simulation, 'environment') and self.simulation.environment:
+                env = self.simulation.environment
+                if hasattr(env, 'spice_growth_rate') and 'spice_growth_rate' in self.ui_components:
+                    self.ui_components['spice_growth_rate'].set_value(env.spice_growth_rate)
+                if hasattr(env, 'max_spice') and 'max_spice' in self.ui_components:
+                    self.ui_components['max_spice'].set_value(env.max_spice)
+        
+        except Exception as e:
+            print(f"Error loading current config: {e}")
     
     def draw(self, screen: pygame.Surface) -> None:
         """Draw experiment configuration panel"""
@@ -2236,31 +2704,92 @@ class ExperimentConfigPanel:
             title_y = self.rect.y + self.padding['top']
             screen.blit(title_surface, (title_x, title_y))
             
-            # Placeholder message
-            placeholder_y = title_y + title_surface.get_height() + 30
-            placeholder_text = "Configuration panels will be implemented here"
-            placeholder_surface = self.font_manager.render_text(placeholder_text, 'BODY', COLORS['TEXT_MUTED'])
-            screen.blit(placeholder_surface, (title_x, placeholder_y))
+            # Draw section titles
+            for section_name, section_info in self.sections.items():
+                if section_name == 'algorithm':
+                    section_title = "Algorithm Combination"
+                elif section_name == 'environment':
+                    section_title = "Environment Configuration"
+                elif section_name == 'hyperparameters':
+                    section_title = "Algorithm Hyperparameters"
+                else:
+                    section_title = section_name.title()
+                
+                section_title_surface = self.font_manager.render_text(
+                    section_title, 'BODY', COLORS['TEXT_PRIMARY']
+                )
+                screen.blit(section_title_surface, (title_x, section_info['title_y']))
             
-            # Draw UI components (when implemented)
+            # Draw UI components
             for component in self.ui_components.values():
                 if hasattr(component, 'draw'):
                     component.draw(screen)
+            
+            # Draw action buttons
+            self._draw_action_buttons(screen)
         
         except Exception as e:
             print(f"Error drawing experiment config panel: {e}")
     
-    def handle_event(self, event: pygame.event.Event) -> bool:
+    def _draw_action_buttons(self, screen: pygame.Surface) -> None:
+        """Draw Apply & Reset and Cancel buttons"""
+        mouse_pos = pygame.mouse.get_pos()
+        
+        # Apply & Reset button
+        if self.apply_button_rect:
+            is_hover = self.apply_button_rect.collidepoint(mouse_pos)
+            bg_color = COLORS['BUTTON_HOVER'] if is_hover else COLORS['BUTTON_NORMAL']
+            if is_hover:
+                bg_color = COLORS['SUCCESS']
+            
+            pygame.draw.rect(screen, bg_color, self.apply_button_rect, border_radius=4)
+            pygame.draw.rect(screen, COLORS['PANEL_BORDER'], self.apply_button_rect, 2, border_radius=4)
+            
+            text_surface = self.font_manager.render_text("Apply & Reset", 'BODY', COLORS['TEXT_PRIMARY'])
+            text_rect = text_surface.get_rect(center=self.apply_button_rect.center)
+            screen.blit(text_surface, text_rect)
+        
+        # Cancel button
+        if self.cancel_button_rect:
+            is_hover = self.cancel_button_rect.collidepoint(mouse_pos)
+            bg_color = COLORS['BUTTON_HOVER'] if is_hover else COLORS['BUTTON_NORMAL']
+            
+            pygame.draw.rect(screen, bg_color, self.cancel_button_rect, border_radius=4)
+            pygame.draw.rect(screen, COLORS['PANEL_BORDER'], self.cancel_button_rect, 2, border_radius=4)
+            
+            text_surface = self.font_manager.render_text("Cancel", 'BODY', COLORS['TEXT_PRIMARY'])
+            text_rect = text_surface.get_rect(center=self.cancel_button_rect.center)
+            screen.blit(text_surface, text_rect)
+    
+    def handle_event(self, event: pygame.event.Event, simulation: Optional[Any] = None) -> bool:
         """
         Handle events for experiment panel
         
         Args:
             event: Pygame event
+            simulation: Optional simulation instance for applying config
             
         Returns:
             True if event was handled, False otherwise
         """
         try:
+            # Handle action buttons
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                mouse_pos = event.pos
+                
+                # Apply & Reset button
+                if self.apply_button_rect and self.apply_button_rect.collidepoint(mouse_pos):
+                    if simulation:
+                        self._apply_config(simulation)
+                    return True
+                
+                # Cancel button
+                if self.cancel_button_rect and self.cancel_button_rect.collidepoint(mouse_pos):
+                    # Reload current config to cancel changes
+                    if simulation:
+                        self._load_current_config()
+                    return True
+            
             # Handle UI component events
             for component in self.ui_components.values():
                 if hasattr(component, 'handle_event'):
@@ -2279,6 +2808,92 @@ class ExperimentConfigPanel:
         except Exception as e:
             print(f"Error handling experiment panel event: {e}")
             return False
+    
+    def _apply_config(self, simulation: Any) -> None:
+        """Apply configuration to simulation"""
+        try:
+            # 记录当前运行状态（reset方法会处理状态恢复）
+            was_running = simulation.state.value == "running"
+            
+            # Collect UI parameters
+            ui_params = {}
+            for key, component in self.ui_components.items():
+                if hasattr(component, 'get_value'):
+                    try:
+                        ui_params[key] = component.get_value()
+                    except Exception as e:
+                        print(f"Warning: Failed to get value from component {key}: {e}")
+                        continue
+            
+            # Map algorithm combination to config builder format
+            algo_combination = ui_params.get('algorithm_combination', 'IQL + QMIX')
+            algo_map = {
+                'IQL Only': 'iql_only',
+                'QMIX Only': 'qmix_only',
+                'IQL + QMIX': 'iql_qmix',
+                'Rule-based Baseline': 'baseline_only',
+                'Mixed': 'mixed',
+                'Custom': 'custom'
+            }
+            ui_params['algorithm_combination'] = algo_map.get(algo_combination, 'iql_qmix')
+            
+            # Build full configuration
+            try:
+                params = self.config_builder.collect_ui_params(ui_params)
+            except Exception as e:
+                print(f"Error collecting UI parameters: {e}")
+                import traceback
+                traceback.print_exc()
+                return
+            
+            # Validate configuration
+            try:
+                is_valid, error_msg = self.config_builder.validate_config(params)
+                if not is_valid:
+                    print(f"Configuration validation failed: {error_msg}")
+                    # TODO: Show error message to user
+                    return
+            except Exception as e:
+                print(f"Error validating configuration: {e}")
+                import traceback
+                traceback.print_exc()
+                return
+            
+            # Build full config for simulation.reset()
+            try:
+                full_config = self.config_builder.build_full_config(params)
+            except Exception as e:
+                print(f"Error building full configuration: {e}")
+                import traceback
+                traceback.print_exc()
+                return
+            
+            # Apply to simulation
+            # reset方法会正确处理状态（暂停当前运行，重置后恢复）
+            try:
+                simulation.reset(full_config)
+                print(f"Configuration applied successfully. State: {simulation.state.value}")
+            except Exception as e:
+                print(f"Error applying configuration to simulation: {e}")
+                import traceback
+                traceback.print_exc()
+                # 确保模拟处于安全状态
+                try:
+                    if simulation.state.value == "running":
+                        simulation.pause()
+                except:
+                    pass
+        
+        except Exception as e:
+            print(f"Critical error applying configuration: {e}")
+            import traceback
+            traceback.print_exc()
+            # 确保模拟处于安全状态
+            try:
+                if simulation and simulation.state.value == "running":
+                    simulation.pause()
+            except:
+                pass
     
     def get_config(self) -> Dict[str, Any]:
         """
@@ -2540,7 +3155,8 @@ class AcademicVisualizationSystem:
         experiment_panel_height = self.screen_height - experiment_panel_y - 10
         self.experiment_panel = ExperimentConfigPanel(
             rect=pygame.Rect(experiment_panel_x, experiment_panel_y, experiment_panel_width, experiment_panel_height),
-            font_manager=self.font_manager
+            font_manager=self.font_manager,
+            simulation=None  # Will be set when simulation is available
         )
 
     def _draw_view_tabs(self, screen: pygame.Surface) -> None:
@@ -2715,6 +3331,13 @@ class AcademicVisualizationSystem:
     def draw(self, screen: pygame.Surface, simulation_data: Dict[str, Any]) -> None:
         """Draw entire visualization system"""
         try:
+            # Update experiment panel simulation reference if available
+            if self.experiment_panel and 'simulation' in simulation_data:
+                if self.experiment_panel.simulation is None:
+                    self.experiment_panel.simulation = simulation_data['simulation']
+                    # Load current config when simulation becomes available
+                    self.experiment_panel._load_current_config()
+            
             # Clear screen with academic background
             screen.fill(COLORS['BACKGROUND'])
             
@@ -3096,7 +3719,8 @@ class AcademicVisualizationSystem:
                 # 处理 Experiment 视图事件
                 if self.active_view == "experiment":
                     if self.experiment_panel:
-                        if self.experiment_panel.handle_event(event):
+                        # Pass simulation to panel for config application
+                        if self.experiment_panel.handle_event(event, simulation):
                             return True
                 
                 # 处理Q值热图开关（仅在Behavior视图）
