@@ -28,9 +28,10 @@ class SugarEnvironment:
         max_sugar: float = 10.0,
         spice_growth_rate: float = 0.02,  # 降低生成速度，让spice更稀缺
         max_spice: float = 6.0,  # 降低最大值，增强稀缺性
-        hazard_decay_rate: float = 0.01,  # hazard缓慢衰减，保证区域有一定持续时间
+        # 为了让hazard长期稳定存在，默认关闭持续衰减（如需动态消散可在配置中重新打开）
+        hazard_decay_rate: float = 0.0,  # 0 表示不随时间自动衰减
         hazard_penalty_factor: float = 3.0,  # hazard对资源收益的惩罚系数
-        hazard_damage_per_step: float = 4.0,  # agent每步在hazard中损失的sugar（按强度缩放）
+        hazard_damage_per_step: float = 6.0,  # agent每步在hazard中损失的sugar（提高伤害系数）
     ):
         self.size = size
         # 资源图
@@ -56,9 +57,24 @@ class SugarEnvironment:
         self.spice_max_centers = 2  # 最多中心点数
         
         # Hazard 动态扩散相关参数
-        self.hazard_active_threshold = 0.4  # 强度大于此值视为“有效hazard”
-        self.hazard_target_fraction = 0.09  # hazard区域目标占据的地图比例（约9%，缩小到原来的3/5）
-        self.hazard_spread_attempts = max(3, self.size // 6)  # 每步尝试扩散的单元数
+        # 稍微调低有效hazard阈值，让危险区在更低强度下仍然算危险
+        self.hazard_active_threshold = 0.3  # 强度大于此值视为“有效hazard”（红色区域 + 伤害区域）
+        # 目标：hazard 稳定覆盖约 1/3 地图
+        self.hazard_target_fraction = 0.33  # hazard 区域目标占据的地图比例（约 33%）
+        # 每步尝试扩散的单元数；随地图变大会更强势扩张，便于接近目标覆盖率
+        self.hazard_spread_attempts = max(5, self.size // 4)  # 每步尝试扩散的单元数
+        # 稳定区间容忍度：当覆盖率在 [target*(1-tol), target*(1+tol)] 之间时，仅轻微边缘抖动
+        self.hazard_stable_tolerance = 0.05
+        # 边缘收缩速率：在覆盖过大时对边缘单元进行局部衰减
+        self.hazard_edge_decay_rate = 0.12
+        # 核心区域逐步扩张相关参数
+        # 最大核心半径（核心区最终能扩展到的范围，大致占hazard区域内部的稳定“心脏”）
+        self.hazard_core_max_radius = max(4, self.size // 8)
+        # 核心半径每步增长速度（float，允许非常平滑地扩张）
+        # 这里让核心大约在 800 步左右从1扩展到最大半径，可根据需要微调
+        self.hazard_core_growth_rate = max(0.02, self.hazard_core_max_radius / 800.0)
+        # 当前核心半径（从单点开始，逐步增长）
+        self.hazard_core_current_radius: float = 0.5
         self.hazard_active_cells: List[Tuple[int, int]] = []  # 当前有效的hazard单元格
         self.hazard_core: Tuple[int, int] = (self.size // 2, self.size // 2)  # 初始核心点占位
         
@@ -130,55 +146,152 @@ class SugarEnvironment:
     def _update_hazard(self) -> None:
         """
         更新hazard区域：
-        - 老的hazard区域缓慢衰减并逐步解除；
-        - 从当前有效hazard区域边缘随机向外扩散，形成不规则连片区域；
-        - hazard区域内的资源被清空且不会再生成，直到区域危险解除。
+        - 以单一核心点为永久起点，从核心向外扩张；
+        - 在覆盖约 1/3 地图后保持稳定，但边缘形状持续轻微波动；
+        - 不再整体衰减到 0，避免整片危险区“突然消失”。
         """
-        # 1) 衰减已有hazard（老区域慢慢解除）
-        if self.hazard_decay_rate > 0:
-            self.hazard_map *= (1.0 - self.hazard_decay_rate)
+        size = self.size
+
+        # 1) 核心区逐步扩张：从单点开始，核心半径缓慢增长到预设最大值
+        core_x, core_y = self.hazard_core
+        if 0 <= core_x < size and 0 <= core_y < size:
+            # 更新当前核心半径（float），实现“逐渐扩张”的效果
+            self.hazard_core_current_radius = min(
+                self.hazard_core_max_radius,
+                self.hazard_core_current_radius + self.hazard_core_growth_rate,
+            )
+            # 内层“锁定半径”：这部分区域一旦形成就长时间稳定存在，不参与收缩
+            locked_radius = max(0.0, self.hazard_core_current_radius - 1.0)
+            r_full = self.hazard_core_current_radius
+            r_lock2 = locked_radius * locked_radius
+            r_full2 = r_full * r_full
+
+            r_int = int(np.ceil(r_full))
+            for dx in range(-r_int, r_int + 1):
+                for dy in range(-r_int, r_int + 1):
+                    nx, ny = core_x + dx, core_y + dy
+                    if 0 <= nx < size and 0 <= ny < size:
+                        dist2 = dx * dx + dy * dy
+                        if dist2 <= r_full2:
+                            # 核心圆盘内永远至少保持为有效hazard
+                            self.hazard_map[nx, ny] = max(self.hazard_map[nx, ny], 1.0)
+
+        # 2) 可选的整体轻微衰减（仅作用于非核心单元），默认 hazard_decay_rate = 0 表示关闭
+        if self.hazard_decay_rate > 0.0:
+            decay_mask = np.ones_like(self.hazard_map, dtype=bool)
+            decay_mask[core_x, core_y] = False
+            self.hazard_map[decay_mask] *= (1.0 - self.hazard_decay_rate)
             self.hazard_map = np.clip(self.hazard_map, 0.0, 1.0)
-        
-        # 2) 重新计算“有效hazard单元格”
+
+        # 3) 计算当前“有效 hazard 区域”与总覆盖率
         active_mask = self.hazard_map >= self.hazard_active_threshold
-        active_indices = np.argwhere(active_mask)
-        self.hazard_active_cells = [(int(x), int(y)) for x, y in active_indices]
-        
-        # 如果hazard区域完全解除，则重新随机选择核心点
-        if not self.hazard_active_cells:
-            self._initialize_hazard_core()
-            active_mask = self.hazard_map >= self.hazard_active_threshold
+        active_count = int(np.sum(active_mask))
+        total_cells = size * size
+        current_fraction = active_count / total_cells if total_cells > 0 else 0.0
+
+        target = self.hazard_target_fraction
+        tol = self.hazard_stable_tolerance
+
+        # 4) 识别边缘单元格：在有效区域内，且存在至少一个非有效（或0）邻居
+        edge_cells: List[Tuple[int, int]] = []
+        if active_count > 0:
             active_indices = np.argwhere(active_mask)
-            self.hazard_active_cells = [(int(x), int(y)) for x, y in active_indices]
-        
-        # 3) 从当前hazard区域边缘向外扩散（形成不规则连片区域）
-        # 目标总面积（单元格数）
-        hazard_target_cells = int(self.hazard_target_fraction * self.size * self.size)
-        current_active_count = len(self.hazard_active_cells)
-        
-        if current_active_count < hazard_target_cells and self.hazard_active_cells:
+            for x, y in active_indices:
+                x_i, y_i = int(x), int(y)
+                # 位于“锁定核心区”内的单元格永远不视为“边缘”，避免核心区域被收缩撕裂
+                dx_core = x_i - core_x
+                dy_core = y_i - core_y
+                if dx_core * dx_core + dy_core * dy_core <= (max(0.0, self.hazard_core_current_radius - 1.0) ** 2):
+                    continue
+                # 核心点可以作为扩张源，但不用于收缩
+                is_core = (x_i == core_x and y_i == core_y)
+                has_boundary_neighbor = False
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        if dx == 0 and dy == 0:
+                            continue
+                        nx, ny = x_i + dx, y_i + dy
+                        if 0 <= nx < size and 0 <= ny < size:
+                            if self.hazard_map[nx, ny] < self.hazard_active_threshold:
+                                has_boundary_neighbor = True
+                                break
+                    if has_boundary_neighbor:
+                        break
+                if has_boundary_neighbor:
+                    edge_cells.append((x_i, y_i))
+
+        # 如果（极小概率）全部消失，只保留核心点重新开始扩张
+        if active_count == 0 and (0 <= core_x < size and 0 <= core_y < size):
+            self.hazard_map[core_x, core_y] = 1.0
+            active_mask[core_x, core_y] = True
+            active_count = 1
+            edge_cells = [(core_x, core_y)]
+
+        # 5) 根据当前覆盖率决定是扩张、收缩还是仅边缘抖动
+        expand = current_fraction < target * (1.0 - tol)
+        shrink = current_fraction > target * (1.0 + tol)
+
+        # 5.1 扩张：从边缘向外随机激活新的单元
+        if expand and edge_cells:
+            max_attempts = self.hazard_spread_attempts
             attempts = 0
-            max_attempts = self.hazard_spread_attempts * 3  # 允许一些失败尝试
-            while attempts < max_attempts and current_active_count < hazard_target_cells:
+            while attempts < max_attempts:
                 attempts += 1
-                # 随机选择一个当前hazard单元格作为扩散源
-                src_x, src_y = random.choice(self.hazard_active_cells)
-                # 在8邻域中随机选择一个方向扩散
+                src_x, src_y = random.choice(edge_cells)
                 dx = random.randint(-1, 1)
                 dy = random.randint(-1, 1)
                 if dx == 0 and dy == 0:
                     continue
                 nx, ny = src_x + dx, src_y + dy
-                if not (0 <= nx < self.size and 0 <= ny < self.size):
+                if not (0 <= nx < size and 0 <= ny < size):
                     continue
-                
-                # 如果邻居尚未是有效hazard，则以较高强度激活它
+                # 只在当前还不是有效hazard的单元上扩张
                 if self.hazard_map[nx, ny] < self.hazard_active_threshold:
                     self.hazard_map[nx, ny] = 1.0
-                    self.hazard_active_cells.append((nx, ny))
-                    current_active_count += 1
-                    if current_active_count >= hazard_target_cells:
+                    active_mask[nx, ny] = True
+                    active_count += 1
+                    if active_count >= int(target * total_cells):
                         break
+
+        # 5.2 收缩：在覆盖过大时，对边缘单元做局部衰减（但永不动核心）
+        elif shrink and edge_cells:
+            max_attempts = self.hazard_spread_attempts
+            attempts = 0
+            while attempts < max_attempts and edge_cells:
+                attempts += 1
+                src_x, src_y = random.choice(edge_cells)
+                # 跳过核心点，避免整片区域因为抖动而断开
+                if src_x == core_x and src_y == core_y:
+                    continue
+                # 对边缘单元进行一定比例的衰减
+                self.hazard_map[src_x, src_y] *= (1.0 - self.hazard_edge_decay_rate)
+                if self.hazard_map[src_x, src_y] < self.hazard_active_threshold:
+                    active_mask[src_x, src_y] = False
+                    active_count -= 1
+                    edge_cells.remove((src_x, src_y))
+                if active_count <= int(target * total_cells):
+                    break
+
+        # 5.3 稳定区间：仅做轻微的边缘扰动（既可能小幅扩张也可能小幅收缩），保持“呼吸感”
+        else:
+            if edge_cells:
+                max_attempts = max(1, self.hazard_spread_attempts // 2)
+                for _ in range(max_attempts):
+                    src_x, src_y = random.choice(edge_cells)
+                    # 50% 扩张，50% 收缩（非核心）
+                    if random.random() < 0.5:
+                        dx = random.randint(-1, 1)
+                        dy = random.randint(-1, 1)
+                        if dx == 0 and dy == 0:
+                            continue
+                        nx, ny = src_x + dx, src_y + dy
+                        if 0 <= nx < size and 0 <= ny < size:
+                            if self.hazard_map[nx, ny] < self.hazard_active_threshold:
+                                self.hazard_map[nx, ny] = 1.0
+                    else:
+                        if not (src_x == core_x and src_y == core_y):
+                            self.hazard_map[src_x, src_y] *= (1.0 - self.hazard_edge_decay_rate * 0.5)
+
 
     
     def _initialize_spice_centers(self) -> None:
@@ -186,9 +299,12 @@ class SugarEnvironment:
         num_centers = random.randint(self.spice_min_centers, self.spice_max_centers)
         self.spice_centers = []
         
-        # 避开hazard区域（中心区域）
-        hazard_region_size = self.size // 4
-        hazard_margin = hazard_region_size // 2 + self.spice_radius + 5
+        # 避开hazard区域：计算安全距离（考虑hazard扩散范围）
+        # 使用hazard目标覆盖比例来估算安全距离
+        hazard_estimated_radius = int(
+            np.sqrt(self.hazard_target_fraction * self.size * self.size / np.pi)
+        )
+        hazard_margin = hazard_estimated_radius + self.spice_radius + 5  # 额外安全距离
         
         for _ in range(num_centers):
             attempts = 0
@@ -196,11 +312,15 @@ class SugarEnvironment:
                 x = random.randint(self.spice_radius, self.size - self.spice_radius - 1)
                 y = random.randint(self.spice_radius, self.size - self.spice_radius - 1)
                 
-                # 检查是否远离hazard区域
-                center_x, center_y = self.size // 2, self.size // 2
-                dist_to_hazard = np.sqrt((x - center_x)**2 + (y - center_y)**2)
+                # 检查是否远离hazard区域（使用实际的hazard核心点）
+                hazard_core_x, hazard_core_y = self.hazard_core
+                dist_to_hazard_core = np.sqrt((x - hazard_core_x)**2 + (y - hazard_core_y)**2)
                 
-                if dist_to_hazard > hazard_margin:
+                # 检查是否处于“有效 hazard 区域”（只要高于阈值就视为危险）
+                is_in_hazard = self.hazard_map[x, y] >= self.hazard_active_threshold
+                
+                # 检查是否距离hazard核心点足够远，且不在hazard区域内
+                if dist_to_hazard_core > hazard_margin and not is_in_hazard:
                     # 检查是否与已有中心点距离足够远
                     too_close = False
                     for existing_center in self.spice_centers:
@@ -229,6 +349,10 @@ class SugarEnvironment:
                     
                     # 边界检查
                     if not (0 <= x < self.size and 0 <= y < self.size):
+                        continue
+                    
+                    # 有效 hazard 区域内绝不生成 spice
+                    if self.hazard_map[x, y] >= self.hazard_active_threshold:
                         continue
                     
                     # 计算距离
@@ -277,7 +401,7 @@ class SugarEnvironment:
     
     def grow_back(self):
         """资源再生与危险区衰减"""
-        # Sugar按速率再生（全地图）
+        # Sugar按速率再生（全地图，稍后会在hazard区域清空）
         self.sugar_map += self.growth_rate
         self.sugar_map = np.clip(self.sugar_map, 0.0, self.max_sugar)
         
@@ -306,11 +430,13 @@ class SugarEnvironment:
                             
                             dist = np.sqrt(dx**2 + dy**2)
                             if dist <= self.spice_radius:
-                                # 只在中心点周围再生
-                                self.spice_map[x, y] += self.spice_growth_rate
-                                self.spice_map[x, y] = np.clip(
-                                    self.spice_map[x, y], 0.0, self.max_spice
-                                )
+                                # 有效 hazard 区域内不再生 spice
+                                if self.hazard_map[x, y] < self.hazard_active_threshold:
+                                    # 只在中心点周围再生
+                                    self.spice_map[x, y] += self.spice_growth_rate
+                                    self.spice_map[x, y] = np.clip(
+                                        self.spice_map[x, y], 0.0, self.max_spice
+                                    )
         else:
             # 如果没有中心点，初始化
             self._initialize_spice_centers()
@@ -318,11 +444,12 @@ class SugarEnvironment:
         # Hazard 动态更新（衰减 + 扩散）
         self._update_hazard()
         
-        # 在hazard区域内清空所有资源（糖和spice不会在hazard内存在或再生）
-        active_hazard_mask = self.hazard_map >= self.hazard_active_threshold
-        if np.any(active_hazard_mask):
-            self.sugar_map[active_hazard_mask] = 0.0
-            self.spice_map[active_hazard_mask] = 0.0
+        # 在“有效 hazard 区域”内清空资源
+        # 语义上：只有 hazard 强度高于阈值（hazard_active_threshold）才视为真正危险区
+        hazard_mask = self.hazard_map >= self.hazard_active_threshold
+        if np.any(hazard_mask):
+            self.sugar_map[hazard_mask] = 0.0
+            self.spice_map[hazard_mask] = 0.0
         
         self.step += 1  # 更新时间步
         self.update_stats()
@@ -354,7 +481,9 @@ class SugarEnvironment:
         net_gain = max(0.0, sugar + spice - penalty)
         
         # Hazard 对 agent 的直接生命损耗（由agent在_update中应用）
-        hazard_damage = hazard * self.hazard_damage_per_step
+        # 只有“有效 hazard”（强度高于阈值）才造成伤害
+        effective_hazard = hazard if hazard >= self.hazard_active_threshold else 0.0
+        hazard_damage = effective_hazard * self.hazard_damage_per_step
         
         self.update_stats()
         return {

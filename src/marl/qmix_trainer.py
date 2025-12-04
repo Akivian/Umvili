@@ -227,8 +227,16 @@ class QMIXTrainer:
                 f"将在形成联合经验时修复"
             )
         
-        # 检查动作类型和范围
+        # 检查动作类型和范围（QMIX 期望的是“离散动作索引”）
         action = experience['action']
+        # 兼容旧数据或错误数据：如果是坐标(tuple/list)，直接跳过该经验
+        if isinstance(action, (tuple, list)):
+            self.logger.warning(
+                f"经验中的动作看起来是坐标而不是离散索引: {action}，"
+                f"已跳过该经验（请确认上游智能体是否使用索引动作）"
+            )
+            return False
+        
         if not isinstance(action, (int, np.integer)):
             try:
                 action = int(action)

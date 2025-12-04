@@ -1,6 +1,8 @@
 # Umvili 多智能体强化学习平台 - 项目进度与规划
 
-## 📊 当前项目状态
+> 最近更新：**2025-12-04**（可视化系统与交互式实验配置系统进度同步）
+
+## 📊 当前项目状态（概要）
 
 ### ✅ 已完成功能（Phase 1-6, Phase 7部分）
 
@@ -96,6 +98,24 @@
 ### Phase 8: 交互式实验配置系统（优先级：高）
 
 **核心目标**：实现无需修改源代码即可在可视化窗口内灵活配置环境、智能体、算法和模型参数，显著提升项目可玩性和研究迭代效率。
+
+#### 8.0 当前实现进度（2025-12-04）
+
+- ✅ **核心基础设施已就绪**
+  - `ConfigBuilder`：从 UI 收集参数，构建 `SimulationConfig` + `AgentTypeConfig`，并进行集中校验与错误处理（`src/utils/config_builder.py`）。
+  - `MARLSimulation.reset(new_config)`：支持完整配置字典重置环境与智能体，并安全地重建 QMIX 训练器、清空旧经验、防止训练过程卡死（`src/core/simulation.py`）。
+  - 参数控件组件库：`Slider` / `InputBox` / `Dropdown` / `Checkbox` / `ButtonGroup` 已实现统一风格与交互（`src/utils/ui_components.py`）。
+  - `Experiment` 视图与 `ExperimentConfigPanel`：集成到 `AcademicVisualizationSystem`，支持完整事件流转和绘制（`src/utils/visualization.py`）。
+- ✅ **已完成的交互式配置能力**
+  - 算法组合选择器：支持 `IQL Only` / `QMIX Only` / `IQL + QMIX` / `Baseline` / `Mixed` / `Custom` 六种模式，使用 `ButtonGroup` 呈现。
+  - 环境基础参数：支持网格大小、Sugar/Spice 生长速率与最大值、资源类型开关、总智能体数量等核心参数的实时调整。
+  - 部分算法超参数：支持 IQL/QMIX 的学习率、Gamma、Epsilon 起止值、部分训练参数等基础超参数控制。
+  - Apply & Reset：Experiment Tab 中的按钮会收集所有 UI 值 → 通过 `ConfigBuilder` 构建配置 → 调用 `simulation.reset(full_config)` 完成带参数重置，并同步重置 Training/Behavior 图表数据。
+  - 训练/行为图表的实时一致性：图表在 reset / 配置切换后会清空旧曲线，仅根据当前存在的 IQL/QMIX 训练器和动作分布重新绘制；当没有学习型智能体时，Training / Behavior 视图会显示友好的英文提示而不是“伪曲线”。
+- ⚠️ **部分设计已部分实现或暂未实现**
+  - Custom 组合下各类型智能体的精细配额滑块仍在规划阶段，目前总智能体数生效，按默认比例拆分。
+  - 算法超参数面板中部分高级参数（如完整的 Replay Buffer / Target Update 频率、网络结构预设与自定义）当前仅在内部配置中有默认值，尚未完全接入 UI。
+  - 配置管理（预设保存/加载、导入/导出、配置对比运行）尚未实现，接口预留在设计文档中，后续会基于当前 `ConfigBuilder` 与 JSON 配置体系补齐。
 
 ---
 

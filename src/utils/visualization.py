@@ -1753,7 +1753,14 @@ class MARLSimulationRenderer:
             # Get max values for normalization
             max_sugar = float(np.max(sugar_map)) if sugar_map.size > 0 else 10.0
             max_spice = float(np.max(spice_map)) if spice_map is not None and spice_map.size > 0 else 0.0
-            max_hazard = float(np.max(hazard_map)) if hazard_map is not None and hazard_map.size > 0 else 0.0
+            # 仅对“有效 hazard 区域”（强度高于阈值）进行可视化
+            # 与环境中的 hazard_active_threshold 保持一致（当前为 0.3）
+            hazard_threshold = 0.3
+            if hazard_map is not None and hazard_map.size > 0:
+                active_hazard = np.where(hazard_map >= hazard_threshold, hazard_map, 0.0)
+                max_hazard = float(np.max(active_hazard))
+            else:
+                max_hazard = 0.0
             
             # 创建临时surface用于半透明叠加
             overlay_surface = pygame.Surface((rows * self.cell_size, cols * self.cell_size))
@@ -1809,12 +1816,13 @@ class MARLSimulationRenderer:
                 screen.blit(overlay_surface, (0, 0))
             
             # Step 3: 绘制Hazard（红色半透明完全覆盖，最明显）
+            # 只有强度高于阈值的hazard才在地图上标注
             if hazard_map is not None and max_hazard > 0:
                 overlay_surface.fill((0, 0, 0))  # 清空overlay
                 for x in range(rows):
                     for y in range(cols):
                         hazard = float(hazard_map[x, y])
-                        if hazard <= 0:
+                        if hazard < hazard_threshold:
                             continue
                         intensity = min(1.0, hazard / max_hazard)
                         # 深血红色系，危险区域用深血红色完全覆盖，营造更危险的视觉效果
@@ -2983,6 +2991,8 @@ class AcademicVisualizationSystem:
         
         # Initialize training metrics charts
         self.training_charts = self._initialize_training_charts(panel_x, panel_width)
+        # 状态消息：在没有 IQL / QMIX 或尚未产生训练数据时，用于在训练视图中展示友好的英文提示
+        self.training_status_message: Optional[str] = None
         
         # Behavior 视图：奖励趋势 & 策略熵曲线图
         behavior_chart_area_x = panel_x + 15
@@ -3073,6 +3083,8 @@ class AcademicVisualizationSystem:
             200,
             self.font_manager,
         )
+        # 状态消息：在没有 IQL / QMIX 时，用于在行为视图中展示友好的英文提示
+        self.behavior_status_message: Optional[str] = None
     
     def get_screen_info(self) -> Tuple[int, int]:
         """Get screen dimensions"""
@@ -3412,6 +3424,14 @@ class AcademicVisualizationSystem:
                     agents_by_type = metrics.get('agents_by_type', {})
                     avg_sugar_by_type = metrics.get('avg_sugar_by_type', {})
                     self.agent_distribution_panel.draw(screen, agents_by_type, avg_sugar_by_type)
+                
+                # 如果当前没有IQL/QMIX或尚未产生训练数据，在训练视图中间给出英文提示
+                if self.training_status_message:
+                    self._draw_centered_message_over_charts(
+                        screen,
+                        self.training_status_message,
+                        list(self.training_charts.values())
+                    )
 
             elif self.active_view == "overview":
                 # 概览视图：在“图表区域”顶部展示类型分布
@@ -3467,6 +3487,16 @@ class AcademicVisualizationSystem:
                     available_height = self.control_panel.rect.bottom - self.network_state_panel.rect.y - 20
                     self.network_state_panel.rect.height = max(150, min(200, available_height))
                     self.network_state_panel.draw(screen)
+                
+                # 如果当前没有IQL/QMIX，在行为视图上方给出英文提示
+                if self.behavior_status_message:
+                    charts = [self.behavior_charts.get("reward_trend"), self.behavior_charts.get("policy_entropy")]
+                    charts = [c for c in charts if c is not None]
+                    self._draw_centered_message_over_charts(
+                        screen,
+                        self.behavior_status_message,
+                        charts
+                    )
 
             elif self.active_view == "experiment":
                 # Experiment 视图：配置面板
@@ -3539,11 +3569,43 @@ class AcademicVisualizationSystem:
         
         从simulation_data中获取training_metrics并更新相应的图表
         """
-        training_metrics = simulation_data.get('training_metrics', {})
-        step = simulation_data.get('step_count', 0)
+        training_metrics = simulation_data.get('training_metrics', {}) or {}
+        step = simulation_data.get('step_count', 0) or 0
+        # 默认清空状态消息，后续根据情况设置
+        self.training_status_message = None
         
+        # 检查当前是否存在任何 MARL 训练器（IQL / QMIX）
+        config_block = simulation_data.get('configuration', {}) or {}
+        marl_trainers = config_block.get('marl_trainers', []) or []
+        has_marl_trainer = any(t in ('iql', 'qmix') for t in marl_trainers)
+
+        # 如果当前没有任何 IQL / QMIX 训练器，则不显示训练曲线，而是给出明确提示
+        if not has_marl_trainer:
+            for chart in self.training_charts.values():
+                chart.clear_all()
+                chart.lines.clear()
+            self.training_status_message = (
+                "No IQL or QMIX agents in the current configuration. "
+                "Training metrics are not available."
+            )
+            return
+
+        # 如果是一次全新的运行（例如 reset 后 step 重新从 0 开始），需要清空所有旧曲线数据
+        if step == 0:
+            for chart in self.training_charts.values():
+                # 清空所有数据点，并移除所有旧曲线，确保图表反映当前真实算法集合
+                chart.clear_all()
+                chart.lines.clear()
+        
+        # 已有 MARL 训练器，但当前还没有产生任何训练数据
         if not training_metrics:
-            return  # 没有训练数据时跳过
+            for chart in self.training_charts.values():
+                chart.clear_all()
+                chart.lines.clear()
+            self.training_status_message = (
+                "Waiting for training data from IQL/QMIX agents..."
+            )
+            return
         
         # 颜色和标签映射：确保不同算法类型使用固定、可区分的颜色和标签
         label_map = {
@@ -3558,6 +3620,20 @@ class AcademicVisualizationSystem:
             'qmix': COLORS.get('AGENT_QMIX', COLORS['CHART_LINE_3']),
             'rule_based': COLORS.get('AGENT_RULE_BASED', COLORS['CHART_LINE_1']),
         }
+
+        # 当前这一步实际存在训练数据的算法标签集合
+        active_labels = {
+            label_map.get(agent_type, agent_type.upper())
+            for agent_type in training_metrics.keys()
+        }
+
+        # 移除已经不存在的算法对应的曲线（例如从 IQL+QMIX 切换为 Baseline Only）
+        for chart in self.training_charts.values():
+            if not chart.lines:
+                continue
+            for label in list(chart.lines.keys()):
+                if label not in active_labels:
+                    chart.remove_line(label)
 
         # 更新损失函数图表
         if 'loss' in self.training_charts:
@@ -3639,10 +3715,29 @@ class AcademicVisualizationSystem:
         if not self.behavior_charts:
             return
 
-        step = simulation_data.get("step_count", 0)
+        # 默认清空状态消息，后续根据情况设置
+        self.behavior_status_message = None
+
+        step = simulation_data.get("step_count", 0) or 0
         training_metrics = simulation_data.get("training_metrics", {}) or {}
         metrics_block = simulation_data.get("metrics", {}) or {}
         action_dist = metrics_block.get("action_distribution_by_type", {}) or {}
+
+        # 检查当前是否存在任何 MARL 训练器（IQL / QMIX）
+        config_block = simulation_data.get('configuration', {}) or {}
+        marl_trainers = config_block.get('marl_trainers', []) or []
+        has_marl_trainer = any(t in ('iql', 'qmix') for t in marl_trainers)
+
+        # 如果没有 IQL / QMIX，则清空行为图表并给出提示
+        if not has_marl_trainer:
+            for chart in self.behavior_charts.values():
+                chart.clear_all()
+                chart.lines.clear()
+            self.behavior_status_message = (
+                "No IQL or QMIX agents in the current configuration. "
+                "Behavior charts are only available for learning agents."
+            )
+            return
 
         label_map = {
             "iql": "IQL",
@@ -3657,52 +3752,122 @@ class AcademicVisualizationSystem:
             "rule_based": COLORS.get("AGENT_RULE_BASED", COLORS["CHART_LINE_1"]),
         }
 
+        # 如果是一次全新的运行（例如 reset 后 step 重新从 0 开始），清空行为图表的所有历史数据
+        if step == 0:
+            for chart in self.behavior_charts.values():
+                chart.clear_all()
+                chart.lines.clear()
+
         # 1) 奖励趋势：使用 recent_reward（如无则退回 avg_reward）
         reward_chart = self.behavior_charts.get("reward_trend")
-        if reward_chart and training_metrics:
-            for agent_type, metrics in training_metrics.items():
-                agent_label = label_map.get(agent_type, agent_type.upper())
-                if agent_label not in reward_chart.lines:
-                    color = color_map.get(agent_type, COLORS["CHART_LINE_1"])
-                    reward_chart.add_line(agent_label, color=color)
+        if reward_chart:
+            if training_metrics:
+                # 当前存在训练数据的算法标签
+                active_reward_labels = {
+                    label_map.get(agent_type, agent_type.upper())
+                    for agent_type in training_metrics.keys()
+                }
 
-                value = None
-                if "recent_reward" in metrics:
-                    value = metrics["recent_reward"]
-                elif "avg_reward" in metrics:
-                    value = metrics["avg_reward"]
+                # 移除已经不存在的算法曲线
+                for label in list(reward_chart.lines.keys()):
+                    if label not in active_reward_labels:
+                        reward_chart.remove_line(label)
 
-                if value is not None:
-                    reward_chart.add_data_point_conditional(agent_label, value, step)
+                # 添加 / 更新当前算法的数据
+                for agent_type, metrics in training_metrics.items():
+                    agent_label = label_map.get(agent_type, agent_type.upper())
+                    if agent_label not in reward_chart.lines:
+                        color = color_map.get(agent_type, COLORS["CHART_LINE_1"])
+                        reward_chart.add_line(agent_label, color=color)
+
+                    value = None
+                    if "recent_reward" in metrics:
+                        value = metrics["recent_reward"]
+                    elif "avg_reward" in metrics:
+                        value = metrics["avg_reward"]
+
+                    if value is not None:
+                        reward_chart.add_data_point_conditional(agent_label, value, step)
+            else:
+                # 没有任何训练数据时，清空奖励趋势图表
+                reward_chart.clear_all()
+                reward_chart.lines.clear()
 
         # 2) 策略熵：基于当前动作分布计算 H(a | type)
         entropy_chart = self.behavior_charts.get("policy_entropy")
-        if entropy_chart and action_dist:
-            for agent_type, counts in action_dist.items():
-                if not counts:
-                    continue
-                total = sum(int(c) for c in counts.values())
-                if total <= 0:
-                    continue
+        if entropy_chart:
+            if action_dist:
+                # 当前有动作分布数据的算法标签
+                active_entropy_labels = set()
 
-                probs = []
-                for c in counts.values():
-                    c = int(c)
-                    if c > 0:
-                        probs.append(c / total)
-                if not probs:
-                    continue
+                for agent_type, counts in action_dist.items():
+                    if not counts:
+                        continue
+                    total = sum(int(c) for c in counts.values())
+                    if total <= 0:
+                        continue
 
-                entropy = 0.0
-                for p in probs:
-                    entropy -= p * math.log(p + 1e-12, 2)
+                    probs = []
+                    for c in counts.values():
+                        c = int(c)
+                        if c > 0:
+                            probs.append(c / total)
+                    if not probs:
+                        continue
 
-                agent_label = label_map.get(agent_type, agent_type.upper())
-                if agent_label not in entropy_chart.lines:
-                    color = color_map.get(agent_type, COLORS["CHART_LINE_1"])
-                    entropy_chart.add_line(agent_label, color=color)
+                    entropy = 0.0
+                    for p in probs:
+                        entropy -= p * math.log(p + 1e-12, 2)
 
-                entropy_chart.add_data_point_conditional(agent_label, entropy, step)
+                    agent_label = label_map.get(agent_type, agent_type.upper())
+                    active_entropy_labels.add(agent_label)
+
+                    if agent_label not in entropy_chart.lines:
+                        color = color_map.get(agent_type, COLORS["CHART_LINE_1"])
+                        entropy_chart.add_line(agent_label, color=color)
+
+                    entropy_chart.add_data_point_conditional(agent_label, entropy, step)
+
+                # 移除当前没有动作分布数据的算法曲线
+                for label in list(entropy_chart.lines.keys()):
+                    if label not in active_entropy_labels:
+                        entropy_chart.remove_line(label)
+            else:
+                # 没有任何动作分布数据时，清空策略熵图表
+                entropy_chart.clear_all()
+                entropy_chart.lines.clear()
+
+    # ------------------------------------------------------------------
+    # Helper: draw status message over chart area
+    # ------------------------------------------------------------------
+    def _draw_centered_message_over_charts(
+        self,
+        screen: pygame.Surface,
+        message: str,
+        charts: List[MultiLineChart],
+    ) -> None:
+        """
+        在一组图表的联合区域中心绘制一行提示文本（英文）。
+        当没有 IQL/QMIX 或尚未产生训练数据时使用。
+        """
+        if not charts:
+            return
+
+        # 计算所有图表 Rect 的联合区域
+        left = min(chart.rect.left for chart in charts)
+        right = max(chart.rect.right for chart in charts)
+        top = min(chart.rect.top for chart in charts)
+        bottom = max(chart.rect.bottom for chart in charts)
+
+        area = pygame.Rect(left, top, right - left, bottom - top)
+
+        text_surface = self.font_manager.render_text(
+            message,
+            'SMALL',
+            COLORS.get('TEXT_MUTED', (150, 150, 150)),
+        )
+        text_rect = text_surface.get_rect(center=area.center)
+        screen.blit(text_surface, text_rect)
     
     def handle_event(self, event: pygame.event.Event, simulation: Any) -> bool:
         """Handle events（视图 Tab 点击 + 控制面板按钮 + Q值热图开关）"""
