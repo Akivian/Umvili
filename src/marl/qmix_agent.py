@@ -106,7 +106,9 @@ class QMIXAgent(LearningAgent):
         # 训练状态
         self.training_step = 0
         self.last_state = None
-        self.last_action = None
+        # 注意：BaseAgent.last_action 用于记录环境中的目标坐标 (x, y)
+        # QMIX 自身需要一个“离散动作索引”，不能与 BaseAgent.last_action 混用
+        self.last_action_idx = None  # 上一步的离散动作索引（0 ~ action_dim-1）
         self.last_global_state = None  # 新增：存储全局状态
         
         # 环境信息
@@ -219,11 +221,12 @@ class QMIXAgent(LearningAgent):
         action = self._action_idx_to_position(action_idx)
         
         # 准备经验数据（在update方法中完善并发送给训练器）
-        if self.last_state is not None and self.last_action is not None:
+        # 这里使用上一步的离散动作索引，而不是 BaseAgent.last_action（坐标）
+        if self.last_state is not None and self.last_action_idx is not None:
             self.pending_experience = {
                 'agent_id': self.agent_id,
                 'state': self.last_state,
-                'action': self.last_action,
+                'action': self.last_action_idx,
                 'reward': 0.0,  # 在update中设置实际奖励
                 'next_state': state,
                 'done': False,
@@ -232,9 +235,9 @@ class QMIXAgent(LearningAgent):
                 'timestamp': time.time()
             }
         
-        # 更新状态记录
+        # 更新状态记录（保存离散动作索引）
         self.last_state = state
-        self.last_action = action_idx
+        self.last_action_idx = action_idx
         self.last_global_state = global_state
         
         return action
@@ -255,11 +258,11 @@ class QMIXAgent(LearningAgent):
     
     def get_last_experience(self) -> Optional[Dict[str, Any]]:
         """获取上一步的经验数据"""
-        if self.last_state is not None and self.last_action is not None:
+        if self.last_state is not None and self.last_action_idx is not None:
             return {
                 'agent_id': self.agent_id,
                 'state': self.last_state,
-                'action': self.last_action,
+                'action': self.last_action_idx,
                 'timestamp': time.time()
             }
         return None
@@ -737,7 +740,7 @@ class QMIXAgent(LearningAgent):
         
         # 重置QMIX特定状态
         self.last_state = None
-        self.last_action = None
+        self.last_action_idx = None  # 离散动作索引
         self.last_global_state = None
         self.pending_experience = None
         self.epsilon = self.config.epsilon_start
