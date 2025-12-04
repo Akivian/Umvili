@@ -2233,15 +2233,19 @@ class ExperimentConfigPanel:
         
         # Import UI components
         from src.utils.ui_components import (
-            Slider, InputBox, Dropdown, Checkbox, ButtonGroup
+            Slider, InputBox, Dropdown, Checkbox, ButtonGroup, CollapsiblePanel
         )
         self.UIComponents = {
             'Slider': Slider,
             'InputBox': InputBox,
             'Dropdown': Dropdown,
             'Checkbox': Checkbox,
-            'ButtonGroup': ButtonGroup
+            'ButtonGroup': ButtonGroup,
+            'CollapsiblePanel': CollapsiblePanel
         }
+        
+        # Collapsible panels
+        self.collapsible_panels: Dict[str, Any] = {}
         
         # Panel sections
         self.sections: Dict[str, Dict[str, Any]] = {}
@@ -2266,27 +2270,33 @@ class ExperimentConfigPanel:
         """Initialize all UI components"""
         current_y = self.rect.y + self.padding['top'] + 30  # Space for title
         
-        # 1. Algorithm Combination Selector
+        # 1. Algorithm Combination Selector (not collapsible)
         current_y = self._create_algorithm_selector(current_y)
         current_y += self.section_spacing
         
-        # 2. Environment Configuration Panel
+        # 2. Environment Configuration Panel (collapsible)
         current_y = self._create_environment_panel(current_y)
         current_y += self.section_spacing
         
-        # 3. Algorithm Hyperparameters Panel
+        # 3. Algorithm Hyperparameters Panel (collapsible)
         current_y = self._create_hyperparameters_panel(current_y)
         current_y += self.section_spacing
         
-        # 4. Action Buttons
-        self._create_action_buttons(current_y)
+        # 4. Reserved space for future modules
+        # This space can be used for additional configuration panels
+        self.reserved_space_start_y = current_y
+        self.reserved_space_height = 200  # Reserved height for future modules
+        
+        # 5. Action Buttons (positioned after reserved space)
+        action_buttons_y = current_y + self.reserved_space_height + self.section_spacing
+        self._create_action_buttons(action_buttons_y)
         
         # Load current configuration if simulation is available
         if self.simulation:
             self._load_current_config()
     
     def _create_algorithm_selector(self, start_y: int) -> int:
-        """Create algorithm combination selector"""
+        """Create algorithm combination selector with advanced configuration"""
         section_title = "Algorithm Combination"
         title_surface = self.font_manager.render_text(section_title, 'BODY', COLORS['TEXT_PRIMARY'])
         title_y = start_y
@@ -2295,10 +2305,12 @@ class ExperimentConfigPanel:
             'start_y': title_y + title_surface.get_height() + 10
         }
         
+        current_y = self.sections['algorithm']['start_y']
+        
         # Button group for algorithm selection
         button_group_rect = pygame.Rect(
             self.rect.x + self.padding['left'],
-            self.sections['algorithm']['start_y'],
+            current_y,
             self.rect.width - self.padding['left'] - self.padding['right'],
             35
         )
@@ -2320,30 +2332,59 @@ class ExperimentConfigPanel:
             font_manager=self.font_manager
         )
         
-        return button_group_rect.bottom + 10
+        current_y = button_group_rect.bottom + 15
+        
+        # Advanced configuration panel (for Mixed and Custom modes)
+        # This will be shown/hidden based on selection
+        self.sections['algorithm']['advanced_start_y'] = current_y
+        current_y = self._create_advanced_algorithm_config(current_y)
+        
+        return current_y
     
     def _create_environment_panel(self, start_y: int) -> int:
-        """Create environment configuration panel"""
-        section_title = "Environment Configuration"
-        title_surface = self.font_manager.render_text(section_title, 'BODY', COLORS['TEXT_PRIMARY'])
-        title_y = start_y
+        """Create collapsible environment configuration panel"""
+        # Calculate panel dimensions
+        panel_width = self.rect.width - self.padding['left'] - self.padding['right']
+        panel_height = 400  # Estimated height when expanded
+        header_height = 35
+        
+        # Create collapsible panel
+        panel_rect = pygame.Rect(
+            self.rect.x + self.padding['left'],
+            start_y,
+            panel_width,
+            panel_height
+        )
+        
+        env_panel = self.UIComponents['CollapsiblePanel'](
+            rect=panel_rect,
+            title="Environment Configuration",
+            font_manager=self.font_manager,
+            initial_expanded=True,
+            header_height=header_height
+        )
+        
+        # Store panel reference
+        self.collapsible_panels['environment'] = env_panel
         self.sections['environment'] = {
-            'title_y': title_y,
-            'start_y': title_y + title_surface.get_height() + 10
+            'panel': env_panel,
+            'start_y': start_y
         }
         
-        current_y = self.sections['environment']['start_y']
-        component_width = (self.rect.width - self.padding['left'] - self.padding['right'] - 20) // 2
+        # Create child components
+        content_start_y = start_y + header_height + 10
+        current_y = content_start_y
+        component_width = (panel_width - 20) // 2
         slider_height = 30
         
         # Grid Size
         grid_slider_rect = pygame.Rect(
-            self.rect.x + self.padding['left'],
+            panel_rect.x + 10,
             current_y,
             component_width,
             slider_height
         )
-        self.ui_components['grid_size'] = self.UIComponents['Slider'](
+        grid_slider = self.UIComponents['Slider'](
             rect=grid_slider_rect,
             label="Grid Size",
             min_value=10,
@@ -2353,15 +2394,17 @@ class ExperimentConfigPanel:
             font_manager=self.font_manager,
             value_format="{:.0f}"
         )
+        self.ui_components['grid_size'] = grid_slider
+        env_panel.add_child(grid_slider)
         
         # Total Agents
         agents_slider_rect = pygame.Rect(
-            self.rect.x + self.padding['left'] + component_width + 20,
+            panel_rect.x + 10 + component_width + 20,
             current_y,
             component_width,
             slider_height
         )
-        self.ui_components['total_agents'] = self.UIComponents['Slider'](
+        agents_slider = self.UIComponents['Slider'](
             rect=agents_slider_rect,
             label="Total Agents",
             min_value=10,
@@ -2371,16 +2414,18 @@ class ExperimentConfigPanel:
             font_manager=self.font_manager,
             value_format="{:.0f}"
         )
+        self.ui_components['total_agents'] = agents_slider
+        env_panel.add_child(agents_slider)
         current_y += slider_height + self.component_spacing
         
         # Sugar Growth Rate
         sugar_growth_rect = pygame.Rect(
-            self.rect.x + self.padding['left'],
+            panel_rect.x + 10,
             current_y,
             component_width,
             slider_height
         )
-        self.ui_components['sugar_growth_rate'] = self.UIComponents['Slider'](
+        sugar_growth = self.UIComponents['Slider'](
             rect=sugar_growth_rect,
             label="Sugar Growth Rate",
             min_value=0.0,
@@ -2390,15 +2435,17 @@ class ExperimentConfigPanel:
             font_manager=self.font_manager,
             value_format="{:.2f}"
         )
+        self.ui_components['sugar_growth_rate'] = sugar_growth
+        env_panel.add_child(sugar_growth)
         
         # Max Sugar
         max_sugar_rect = pygame.Rect(
-            self.rect.x + self.padding['left'] + component_width + 20,
+            panel_rect.x + 10 + component_width + 20,
             current_y,
             component_width,
             slider_height
         )
-        self.ui_components['max_sugar'] = self.UIComponents['Slider'](
+        max_sugar = self.UIComponents['Slider'](
             rect=max_sugar_rect,
             label="Max Sugar",
             min_value=1.0,
@@ -2408,16 +2455,18 @@ class ExperimentConfigPanel:
             font_manager=self.font_manager,
             value_format="{:.1f}"
         )
+        self.ui_components['max_sugar'] = max_sugar
+        env_panel.add_child(max_sugar)
         current_y += slider_height + self.component_spacing
         
         # Spice Growth Rate
         spice_growth_rect = pygame.Rect(
-            self.rect.x + self.padding['left'],
+            panel_rect.x + 10,
             current_y,
             component_width,
             slider_height
         )
-        self.ui_components['spice_growth_rate'] = self.UIComponents['Slider'](
+        spice_growth = self.UIComponents['Slider'](
             rect=spice_growth_rect,
             label="Spice Growth Rate",
             min_value=0.0,
@@ -2427,15 +2476,17 @@ class ExperimentConfigPanel:
             font_manager=self.font_manager,
             value_format="{:.3f}"
         )
+        self.ui_components['spice_growth_rate'] = spice_growth
+        env_panel.add_child(spice_growth)
         
         # Max Spice
         max_spice_rect = pygame.Rect(
-            self.rect.x + self.padding['left'] + component_width + 20,
+            panel_rect.x + 10 + component_width + 20,
             current_y,
             component_width,
             slider_height
         )
-        self.ui_components['max_spice'] = self.UIComponents['Slider'](
+        max_spice = self.UIComponents['Slider'](
             rect=max_spice_rect,
             label="Max Spice",
             min_value=1.0,
@@ -2445,6 +2496,8 @@ class ExperimentConfigPanel:
             font_manager=self.font_manager,
             value_format="{:.1f}"
         )
+        self.ui_components['max_spice'] = max_spice
+        env_panel.add_child(max_spice)
         current_y += slider_height + self.component_spacing
         
         # Resource Type Switches
@@ -2454,70 +2507,103 @@ class ExperimentConfigPanel:
         
         # Sugar checkbox
         sugar_checkbox_rect = pygame.Rect(
-            self.rect.x + self.padding['left'],
+            panel_rect.x + 10,
             checkbox_y,
             checkbox_width,
             20
         )
-        self.ui_components['resource_sugar_enabled'] = self.UIComponents['Checkbox'](
+        sugar_checkbox = self.UIComponents['Checkbox'](
             rect=sugar_checkbox_rect,
             label="Sugar",
             initial_value=True,
             font_manager=self.font_manager
         )
+        self.ui_components['resource_sugar_enabled'] = sugar_checkbox
+        env_panel.add_child(sugar_checkbox)
         
         # Spice checkbox
         spice_checkbox_rect = pygame.Rect(
-            self.rect.x + self.padding['left'] + checkbox_width + 20,
+            panel_rect.x + 10 + checkbox_width + 20,
             checkbox_y,
             checkbox_width,
             20
         )
-        self.ui_components['resource_spice_enabled'] = self.UIComponents['Checkbox'](
+        spice_checkbox = self.UIComponents['Checkbox'](
             rect=spice_checkbox_rect,
             label="Spice",
             initial_value=True,
             font_manager=self.font_manager
         )
+        self.ui_components['resource_spice_enabled'] = spice_checkbox
+        env_panel.add_child(spice_checkbox)
         
         # Hazard checkbox
         hazard_checkbox_rect = pygame.Rect(
-            self.rect.x + self.padding['left'] + (checkbox_width + 20) * 2,
+            panel_rect.x + 10 + (checkbox_width + 20) * 2,
             checkbox_y,
             checkbox_width,
             20
         )
-        self.ui_components['resource_hazard_enabled'] = self.UIComponents['Checkbox'](
+        hazard_checkbox = self.UIComponents['Checkbox'](
             rect=hazard_checkbox_rect,
             label="Hazard",
             initial_value=True,
             font_manager=self.font_manager
         )
+        self.ui_components['resource_hazard_enabled'] = hazard_checkbox
+        env_panel.add_child(hazard_checkbox)
         
-        return checkbox_y + 30
+        # Update panel height based on content
+        content_height = checkbox_y + 30 - content_start_y
+        env_panel.rect.height = header_height + content_height + 10
+        env_panel.target_height = env_panel.rect.height
+        
+        return start_y + env_panel.rect.height + self.section_spacing
     
     def _create_hyperparameters_panel(self, start_y: int) -> int:
-        """Create algorithm hyperparameters panel"""
-        section_title = "Algorithm Hyperparameters"
-        title_surface = self.font_manager.render_text(section_title, 'BODY', COLORS['TEXT_PRIMARY'])
-        title_y = start_y
+        """Create collapsible algorithm hyperparameters panel"""
+        # Calculate panel dimensions
+        panel_width = self.rect.width - self.padding['left'] - self.padding['right']
+        panel_height = 350  # Estimated height when expanded
+        header_height = 35
+        
+        # Create collapsible panel
+        panel_rect = pygame.Rect(
+            self.rect.x + self.padding['left'],
+            start_y,
+            panel_width,
+            panel_height
+        )
+        
+        hyperparams_panel = self.UIComponents['CollapsiblePanel'](
+            rect=panel_rect,
+            title="Algorithm Hyperparameters",
+            font_manager=self.font_manager,
+            initial_expanded=False,  # Start collapsed
+            header_height=header_height
+        )
+        
+        # Store panel reference
+        self.collapsible_panels['hyperparameters'] = hyperparams_panel
         self.sections['hyperparameters'] = {
-            'title_y': title_y,
-            'start_y': title_y + title_surface.get_height() + 10
+            'panel': hyperparams_panel,
+            'start_y': start_y
         }
         
-        current_y = self.sections['hyperparameters']['start_y']
-        component_width = (self.rect.width - self.padding['left'] - self.padding['right'] - 20) // 2
+        # Create child components
+        content_start_y = start_y + header_height + 10
+        current_y = content_start_y
+        component_width = (panel_width - 20) // 2
         slider_height = 30
         
         # IQL Learning Rate
         iql_lr_rect = pygame.Rect(
-            self.rect.x + self.padding['left'],
+            panel_rect.x + 10,
             current_y,
             component_width,
             slider_height
         )
-        self.ui_components['iql_learning_rate'] = self.UIComponents['Slider'](
+        iql_lr = self.UIComponents['Slider'](
             rect=iql_lr_rect,
             label="IQL Learning Rate",
             min_value=0.0001,
@@ -2527,15 +2613,17 @@ class ExperimentConfigPanel:
             font_manager=self.font_manager,
             value_format="{:.4f}"
         )
+        self.ui_components['iql_learning_rate'] = iql_lr
+        hyperparams_panel.add_child(iql_lr)
         
         # IQL Gamma
         iql_gamma_rect = pygame.Rect(
-            self.rect.x + self.padding['left'] + component_width + 20,
+            panel_rect.x + 10 + component_width + 20,
             current_y,
             component_width,
             slider_height
         )
-        self.ui_components['iql_gamma'] = self.UIComponents['Slider'](
+        iql_gamma = self.UIComponents['Slider'](
             rect=iql_gamma_rect,
             label="IQL Gamma (γ)",
             min_value=0.5,
@@ -2545,16 +2633,18 @@ class ExperimentConfigPanel:
             font_manager=self.font_manager,
             value_format="{:.2f}"
         )
+        self.ui_components['iql_gamma'] = iql_gamma
+        hyperparams_panel.add_child(iql_gamma)
         current_y += slider_height + self.component_spacing
         
         # IQL Epsilon Start
         iql_eps_start_rect = pygame.Rect(
-            self.rect.x + self.padding['left'],
+            panel_rect.x + 10,
             current_y,
             component_width,
             slider_height
         )
-        self.ui_components['iql_epsilon_start'] = self.UIComponents['Slider'](
+        iql_eps_start = self.UIComponents['Slider'](
             rect=iql_eps_start_rect,
             label="IQL Epsilon Start",
             min_value=0.0,
@@ -2564,15 +2654,17 @@ class ExperimentConfigPanel:
             font_manager=self.font_manager,
             value_format="{:.2f}"
         )
+        self.ui_components['iql_epsilon_start'] = iql_eps_start
+        hyperparams_panel.add_child(iql_eps_start)
         
         # IQL Epsilon End
         iql_eps_end_rect = pygame.Rect(
-            self.rect.x + self.padding['left'] + component_width + 20,
+            panel_rect.x + 10 + component_width + 20,
             current_y,
             component_width,
             slider_height
         )
-        self.ui_components['iql_epsilon_end'] = self.UIComponents['Slider'](
+        iql_eps_end = self.UIComponents['Slider'](
             rect=iql_eps_end_rect,
             label="IQL Epsilon End",
             min_value=0.0,
@@ -2582,16 +2674,18 @@ class ExperimentConfigPanel:
             font_manager=self.font_manager,
             value_format="{:.2f}"
         )
+        self.ui_components['iql_epsilon_end'] = iql_eps_end
+        hyperparams_panel.add_child(iql_eps_end)
         current_y += slider_height + self.component_spacing
         
         # QMIX Learning Rate
         qmix_lr_rect = pygame.Rect(
-            self.rect.x + self.padding['left'],
+            panel_rect.x + 10,
             current_y,
             component_width,
             slider_height
         )
-        self.ui_components['qmix_learning_rate'] = self.UIComponents['Slider'](
+        qmix_lr = self.UIComponents['Slider'](
             rect=qmix_lr_rect,
             label="QMIX Learning Rate",
             min_value=0.0001,
@@ -2601,15 +2695,17 @@ class ExperimentConfigPanel:
             font_manager=self.font_manager,
             value_format="{:.4f}"
         )
+        self.ui_components['qmix_learning_rate'] = qmix_lr
+        hyperparams_panel.add_child(qmix_lr)
         
         # QMIX Gamma
         qmix_gamma_rect = pygame.Rect(
-            self.rect.x + self.padding['left'] + component_width + 20,
+            panel_rect.x + 10 + component_width + 20,
             current_y,
             component_width,
             slider_height
         )
-        self.ui_components['qmix_gamma'] = self.UIComponents['Slider'](
+        qmix_gamma = self.UIComponents['Slider'](
             rect=qmix_gamma_rect,
             label="QMIX Gamma (γ)",
             min_value=0.5,
@@ -2619,8 +2715,328 @@ class ExperimentConfigPanel:
             font_manager=self.font_manager,
             value_format="{:.2f}"
         )
+        self.ui_components['qmix_gamma'] = qmix_gamma
+        hyperparams_panel.add_child(qmix_gamma)
         
-        return current_y + slider_height + 10
+        # Update panel height based on content
+        content_height = current_y + slider_height + 10 - content_start_y
+        hyperparams_panel.rect.height = header_height + content_height + 10
+        hyperparams_panel.target_height = header_height  # Start collapsed
+        
+        return start_y + header_height + self.section_spacing
+    
+    def _create_advanced_algorithm_config(self, start_y: int) -> int:
+        """Create advanced algorithm configuration panel for Mixed/Custom modes"""
+        current_y = start_y
+        component_width = (self.rect.width - self.padding['left'] - self.padding['right'] - 20) // 2
+        slider_height = 30
+        checkbox_height = 20
+        
+        # Store advanced config components in a separate dict for easy show/hide
+        self.advanced_algorithm_components = {}
+        
+        # Mixed Mode Configuration
+        # Checkboxes for selecting which algorithms to include
+        mixed_section_y = current_y
+        self.advanced_algorithm_components['mixed_section'] = {
+            'start_y': mixed_section_y,
+            'components': {}
+        }
+        
+        # Algorithm selection checkboxes
+        checkbox_y = mixed_section_y + 5
+        checkbox_width = 120
+        checkbox_spacing = 10
+        
+        # IQL checkbox
+        iql_checkbox_rect = pygame.Rect(
+            self.rect.x + self.padding['left'],
+            checkbox_y,
+            checkbox_width,
+            checkbox_height
+        )
+        self.advanced_algorithm_components['mixed_section']['components']['mixed_iql_enabled'] = self.UIComponents['Checkbox'](
+            rect=iql_checkbox_rect,
+            label="Include IQL",
+            initial_value=True,
+            font_manager=self.font_manager
+        )
+        
+        # QMIX checkbox
+        qmix_checkbox_rect = pygame.Rect(
+            self.rect.x + self.padding['left'] + checkbox_width + checkbox_spacing,
+            checkbox_y,
+            checkbox_width,
+            checkbox_height
+        )
+        self.advanced_algorithm_components['mixed_section']['components']['mixed_qmix_enabled'] = self.UIComponents['Checkbox'](
+            rect=qmix_checkbox_rect,
+            label="Include QMIX",
+            initial_value=True,
+            font_manager=self.font_manager
+        )
+        
+        # Rule-based checkbox
+        rule_checkbox_rect = pygame.Rect(
+            self.rect.x + self.padding['left'] + (checkbox_width + checkbox_spacing) * 2,
+            checkbox_y,
+            checkbox_width,
+            checkbox_height
+        )
+        self.advanced_algorithm_components['mixed_section']['components']['mixed_rule_enabled'] = self.UIComponents['Checkbox'](
+            rect=rule_checkbox_rect,
+            label="Include Rule-based",
+            initial_value=False,
+            font_manager=self.font_manager
+        )
+        
+        checkbox_y += checkbox_height + 15
+        
+        # Agent count sliders for Mixed mode
+        # IQL count
+        iql_count_rect = pygame.Rect(
+            self.rect.x + self.padding['left'],
+            checkbox_y,
+            component_width,
+            slider_height
+        )
+        self.advanced_algorithm_components['mixed_section']['components']['mixed_iql_count'] = self.UIComponents['Slider'](
+            rect=iql_count_rect,
+            label="IQL Count",
+            min_value=0,
+            max_value=200,
+            initial_value=15,
+            step=5,
+            font_manager=self.font_manager,
+            value_format="{:.0f}"
+        )
+        
+        # QMIX count
+        qmix_count_rect = pygame.Rect(
+            self.rect.x + self.padding['left'] + component_width + 20,
+            checkbox_y,
+            component_width,
+            slider_height
+        )
+        self.advanced_algorithm_components['mixed_section']['components']['mixed_qmix_count'] = self.UIComponents['Slider'](
+            rect=qmix_count_rect,
+            label="QMIX Count",
+            min_value=0,
+            max_value=200,
+            initial_value=15,
+            step=5,
+            font_manager=self.font_manager,
+            value_format="{:.0f}"
+        )
+        
+        checkbox_y += slider_height + self.component_spacing
+        
+        # Rule-based count
+        rule_count_rect = pygame.Rect(
+            self.rect.x + self.padding['left'],
+            checkbox_y,
+            component_width,
+            slider_height
+        )
+        self.advanced_algorithm_components['mixed_section']['components']['mixed_rule_count'] = self.UIComponents['Slider'](
+            rect=rule_count_rect,
+            label="Rule-based Count",
+            min_value=0,
+            max_value=200,
+            initial_value=10,
+            step=5,
+            font_manager=self.font_manager,
+            value_format="{:.0f}"
+        )
+        
+        mixed_section_end = checkbox_y + slider_height + 10
+        
+        # Custom Mode Configuration
+        custom_section_y = mixed_section_end + 20
+        self.advanced_algorithm_components['custom_section'] = {
+            'start_y': custom_section_y,
+            'components': {}
+        }
+        
+        # Custom mode: Full control over each algorithm type
+        custom_y = custom_section_y + 5
+        
+        # IQL configuration
+        custom_iql_y = custom_y
+        self.advanced_algorithm_components['custom_section']['components']['custom_iql_enabled'] = self.UIComponents['Checkbox'](
+            rect=pygame.Rect(
+                self.rect.x + self.padding['left'],
+                custom_iql_y,
+                100,
+                checkbox_height
+            ),
+            label="IQL",
+            initial_value=True,
+            font_manager=self.font_manager
+        )
+        
+        custom_iql_y += checkbox_height + 5
+        
+        # IQL count
+        self.advanced_algorithm_components['custom_section']['components']['custom_iql_count'] = self.UIComponents['Slider'](
+            rect=pygame.Rect(
+                self.rect.x + self.padding['left'],
+                custom_iql_y,
+                component_width,
+                slider_height
+            ),
+            label="IQL Count",
+            min_value=0,
+            max_value=200,
+            initial_value=20,
+            step=5,
+            font_manager=self.font_manager,
+            value_format="{:.0f}"
+        )
+        
+        custom_iql_y += slider_height + 10
+        
+        # QMIX configuration
+        custom_qmix_y = custom_iql_y
+        self.advanced_algorithm_components['custom_section']['components']['custom_qmix_enabled'] = self.UIComponents['Checkbox'](
+            rect=pygame.Rect(
+                self.rect.x + self.padding['left'],
+                custom_qmix_y,
+                100,
+                checkbox_height
+            ),
+            label="QMIX",
+            initial_value=True,
+            font_manager=self.font_manager
+        )
+        
+        custom_qmix_y += checkbox_height + 5
+        
+        # QMIX count
+        self.advanced_algorithm_components['custom_section']['components']['custom_qmix_count'] = self.UIComponents['Slider'](
+            rect=pygame.Rect(
+                self.rect.x + self.padding['left'],
+                custom_qmix_y,
+                component_width,
+                slider_height
+            ),
+            label="QMIX Count",
+            min_value=0,
+            max_value=200,
+            initial_value=20,
+            step=5,
+            font_manager=self.font_manager,
+            value_format="{:.0f}"
+        )
+        
+        custom_qmix_y += slider_height + 10
+        
+        # Rule-based types configuration
+        custom_rule_y = custom_qmix_y
+        
+        # Rule-based (greedy)
+        self.advanced_algorithm_components['custom_section']['components']['custom_rule_enabled'] = self.UIComponents['Checkbox'](
+            rect=pygame.Rect(
+                self.rect.x + self.padding['left'],
+                custom_rule_y,
+                100,
+                checkbox_height
+            ),
+            label="Rule-based",
+            initial_value=False,
+            font_manager=self.font_manager
+        )
+        
+        custom_rule_y += checkbox_height + 5
+        
+        self.advanced_algorithm_components['custom_section']['components']['custom_rule_count'] = self.UIComponents['Slider'](
+            rect=pygame.Rect(
+                self.rect.x + self.padding['left'],
+                custom_rule_y,
+                component_width,
+                slider_height
+            ),
+            label="Rule-based Count",
+            min_value=0,
+            max_value=200,
+            initial_value=10,
+            step=5,
+            font_manager=self.font_manager,
+            value_format="{:.0f}"
+        )
+        
+        custom_rule_y += slider_height + 10
+        
+        # Conservative
+        self.advanced_algorithm_components['custom_section']['components']['custom_conservative_enabled'] = self.UIComponents['Checkbox'](
+            rect=pygame.Rect(
+                self.rect.x + self.padding['left'],
+                custom_rule_y,
+                100,
+                checkbox_height
+            ),
+            label="Conservative",
+            initial_value=False,
+            font_manager=self.font_manager
+        )
+        
+        custom_rule_y += checkbox_height + 5
+        
+        self.advanced_algorithm_components['custom_section']['components']['custom_conservative_count'] = self.UIComponents['Slider'](
+            rect=pygame.Rect(
+                self.rect.x + self.padding['left'],
+                custom_rule_y,
+                component_width,
+                slider_height
+            ),
+            label="Conservative Count",
+            min_value=0,
+            max_value=200,
+            initial_value=5,
+            step=5,
+            font_manager=self.font_manager,
+            value_format="{:.0f}"
+        )
+        
+        custom_rule_y += slider_height + 10
+        
+        # Exploratory
+        self.advanced_algorithm_components['custom_section']['components']['custom_exploratory_enabled'] = self.UIComponents['Checkbox'](
+            rect=pygame.Rect(
+                self.rect.x + self.padding['left'],
+                custom_rule_y,
+                100,
+                checkbox_height
+            ),
+            label="Exploratory",
+            initial_value=False,
+            font_manager=self.font_manager
+        )
+        
+        custom_rule_y += checkbox_height + 5
+        
+        self.advanced_algorithm_components['custom_section']['components']['custom_exploratory_count'] = self.UIComponents['Slider'](
+            rect=pygame.Rect(
+                self.rect.x + self.padding['left'],
+                custom_rule_y,
+                component_width,
+                slider_height
+            ),
+            label="Exploratory Count",
+            min_value=0,
+            max_value=200,
+            initial_value=5,
+            step=5,
+            font_manager=self.font_manager,
+            value_format="{:.0f}"
+        )
+        
+        custom_section_end = custom_rule_y + slider_height + 10
+        
+        # Initially hide advanced config (will be shown based on selection)
+        self._update_advanced_config_visibility()
+        
+        return max(mixed_section_end, custom_section_end)
     
     def _create_action_buttons(self, start_y: int) -> None:
         """Create Apply & Reset and Cancel buttons"""
@@ -2704,32 +3120,122 @@ class ExperimentConfigPanel:
             title_y = self.rect.y + self.padding['top']
             screen.blit(title_surface, (title_x, title_y))
             
-            # Draw section titles
-            for section_name, section_info in self.sections.items():
-                if section_name == 'algorithm':
-                    section_title = "Algorithm Combination"
-                elif section_name == 'environment':
-                    section_title = "Environment Configuration"
-                elif section_name == 'hyperparameters':
-                    section_title = "Algorithm Hyperparameters"
-                else:
-                    section_title = section_name.title()
-                
+            # Draw algorithm combination selector (not collapsible)
+            if 'algorithm' in self.sections:
+                section_title = "Algorithm Combination"
                 section_title_surface = self.font_manager.render_text(
                     section_title, 'BODY', COLORS['TEXT_PRIMARY']
                 )
-                screen.blit(section_title_surface, (title_x, section_info['title_y']))
+                section_info = self.sections['algorithm']
+                if 'title_y' in section_info:
+                    screen.blit(section_title_surface, (title_x, section_info['title_y']))
             
-            # Draw UI components
+            # Draw UI components (algorithm selector)
             for component in self.ui_components.values():
                 if hasattr(component, 'draw'):
-                    component.draw(screen)
+                    # Skip components that are children of collapsible panels
+                    is_child = False
+                    for panel in self.collapsible_panels.values():
+                        if component in panel.child_components:
+                            is_child = True
+                            break
+                    if not is_child:
+                        component.draw(screen)
+            
+            # Draw collapsible panels
+            for panel in self.collapsible_panels.values():
+                if hasattr(panel, 'draw'):
+                    panel.draw(screen)
+            
+            # Draw advanced algorithm configuration (if visible)
+            self._draw_advanced_algorithm_config(screen)
             
             # Draw action buttons
             self._draw_action_buttons(screen)
         
         except Exception as e:
             print(f"Error drawing experiment config panel: {e}")
+    
+    def _update_advanced_config_visibility(self) -> None:
+        """Update visibility of advanced algorithm configuration based on selection"""
+        if not hasattr(self, 'advanced_algorithm_components'):
+            return
+        
+        current_mode = self.ui_components.get('algorithm_combination')
+        if not current_mode:
+            return
+        
+        try:
+            current_value = current_mode.get_value()
+        except:
+            current_value = "IQL + QMIX"
+        
+        # Show/hide Mixed section
+        if 'mixed_section' in self.advanced_algorithm_components:
+            mixed_section = self.advanced_algorithm_components['mixed_section']
+            is_visible = (current_value == 'Mixed')
+            for comp in mixed_section['components'].values():
+                if hasattr(comp, 'rect'):
+                    # Store original position for restoration
+                    if not hasattr(comp, '_original_rect'):
+                        comp._original_rect = comp.rect.copy()
+                    # Move off-screen if hidden
+                    if not is_visible:
+                        comp.rect.y = -1000
+                    else:
+                        comp.rect.y = comp._original_rect.y
+        
+        # Show/hide Custom section
+        if 'custom_section' in self.advanced_algorithm_components:
+            custom_section = self.advanced_algorithm_components['custom_section']
+            is_visible = (current_value == 'Custom')
+            for comp in custom_section['components'].values():
+                if hasattr(comp, 'rect'):
+                    if not hasattr(comp, '_original_rect'):
+                        comp._original_rect = comp.rect.copy()
+                    if not is_visible:
+                        comp.rect.y = -1000
+                    else:
+                        comp.rect.y = comp._original_rect.y
+    
+    def _draw_advanced_algorithm_config(self, screen: pygame.Surface) -> None:
+        """Draw advanced algorithm configuration panel"""
+        if not hasattr(self, 'advanced_algorithm_components'):
+            return
+        
+        current_mode = self.ui_components.get('algorithm_combination')
+        if not current_mode:
+            return
+        
+        try:
+            current_value = current_mode.get_value()
+        except:
+            return
+        
+        # Draw section title if visible
+        if current_value == 'Mixed':
+            section_title = "Mixed Mode Configuration"
+            section_y = self.advanced_algorithm_components['mixed_section']['start_y']
+            if hasattr(self, 'sections') and 'algorithm' in self.sections:
+                title_surface = self.font_manager.render_text(section_title, 'BODY', COLORS['TEXT_PRIMARY'])
+                screen.blit(title_surface, (self.rect.x + self.padding['left'], section_y - 20))
+            
+            # Draw Mixed section components
+            for comp in self.advanced_algorithm_components['mixed_section']['components'].values():
+                if hasattr(comp, 'draw') and hasattr(comp, 'rect') and comp.rect.y >= 0:
+                    comp.draw(screen)
+        
+        elif current_value == 'Custom':
+            section_title = "Custom Mode Configuration"
+            section_y = self.advanced_algorithm_components['custom_section']['start_y']
+            if hasattr(self, 'sections') and 'algorithm' in self.sections:
+                title_surface = self.font_manager.render_text(section_title, 'BODY', COLORS['TEXT_PRIMARY'])
+                screen.blit(title_surface, (self.rect.x + self.padding['left'], section_y - 20))
+            
+            # Draw Custom section components
+            for comp in self.advanced_algorithm_components['custom_section']['components'].values():
+                if hasattr(comp, 'draw') and hasattr(comp, 'rect') and comp.rect.y >= 0:
+                    comp.draw(screen)
     
     def _draw_action_buttons(self, screen: pygame.Surface) -> None:
         """Draw Apply & Reset and Cancel buttons"""
@@ -2790,11 +3296,44 @@ class ExperimentConfigPanel:
                         self._load_current_config()
                     return True
             
-            # Handle UI component events
+            # Handle collapsible panels first (they manage their children)
+            for panel in self.collapsible_panels.values():
+                if hasattr(panel, 'handle_event'):
+                    if panel.handle_event(event):
+                        return True
+            
+            # Handle UI component events (non-collapsible components)
             for component in self.ui_components.values():
+                # Skip components that are children of collapsible panels
+                is_child = False
+                for panel in self.collapsible_panels.values():
+                    if component in panel.child_components:
+                        is_child = True
+                        break
+                if is_child:
+                    continue
+                
                 if hasattr(component, 'handle_event'):
                     if component.handle_event(event):
+                        # Check if algorithm combination changed
+                        if component == self.ui_components.get('algorithm_combination'):
+                            self._update_advanced_config_visibility()
                         return True
+            
+            # Handle advanced algorithm config events
+            if hasattr(self, 'advanced_algorithm_components'):
+                current_mode = self.ui_components.get('algorithm_combination')
+                if current_mode:
+                    current_value = current_mode.get_value()
+                    if current_value in ['Mixed', 'Custom']:
+                        # Get the appropriate section
+                        section_key = 'mixed_section' if current_value == 'Mixed' else 'custom_section'
+                        if section_key in self.advanced_algorithm_components:
+                            section = self.advanced_algorithm_components[section_key]
+                            for comp_key, comp in section['components'].items():
+                                if hasattr(comp, 'handle_event'):
+                                    if comp.handle_event(event):
+                                        return True
             
             # Handle scroll events
             if event.type == pygame.MOUSEWHEEL:
@@ -2824,6 +3363,29 @@ class ExperimentConfigPanel:
                     except Exception as e:
                         print(f"Warning: Failed to get value from component {key}: {e}")
                         continue
+            
+            # Collect advanced algorithm configuration parameters
+            current_mode = ui_params.get('algorithm_combination', 'IQL + QMIX')
+            if current_mode == 'Mixed':
+                # Collect Mixed mode parameters
+                if hasattr(self, 'advanced_algorithm_components') and 'mixed_section' in self.advanced_algorithm_components:
+                    mixed_section = self.advanced_algorithm_components['mixed_section']
+                    for comp_key, comp in mixed_section['components'].items():
+                        if hasattr(comp, 'get_value'):
+                            try:
+                                ui_params[comp_key] = comp.get_value()
+                            except:
+                                pass
+            elif current_mode == 'Custom':
+                # Collect Custom mode parameters
+                if hasattr(self, 'advanced_algorithm_components') and 'custom_section' in self.advanced_algorithm_components:
+                    custom_section = self.advanced_algorithm_components['custom_section']
+                    for comp_key, comp in custom_section['components'].items():
+                        if hasattr(comp, 'get_value'):
+                            try:
+                                ui_params[comp_key] = comp.get_value()
+                            except:
+                                pass
             
             # Map algorithm combination to config builder format
             algo_combination = ui_params.get('algorithm_combination', 'IQL + QMIX')

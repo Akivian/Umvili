@@ -725,6 +725,192 @@ class Checkbox(UIComponent):
         self.checked = bool(value)
 
 
+class CollapsiblePanel(UIComponent):
+    """
+    Collapsible Panel Component
+    
+    A panel that can be expanded or collapsed by clicking on the header.
+    Contains child components that are shown/hidden based on the panel state.
+    """
+    
+    def __init__(
+        self,
+        rect: pygame.Rect,
+        title: str,
+        font_manager: Optional[Any] = None,
+        initial_expanded: bool = True,
+        header_height: int = 35,
+        child_components: Optional[List[UIComponent]] = None
+    ):
+        """
+        Initialize collapsible panel
+        
+        Args:
+            rect: Panel rectangle
+            title: Panel title
+            font_manager: Font manager for text rendering
+            initial_expanded: Whether panel starts expanded
+            header_height: Height of the header bar
+            child_components: List of child components to manage
+        """
+        super().__init__(rect, title, font_manager)
+        self.title = title
+        self.is_expanded = initial_expanded
+        self.header_height = header_height
+        self.child_components = child_components or []
+        
+        # Header rectangle
+        self.header_rect = pygame.Rect(
+            rect.x, rect.y, rect.width, header_height
+        )
+        
+        # Content rectangle (for child components)
+        self.content_rect = pygame.Rect(
+            rect.x, rect.y + header_height, rect.width, rect.height - header_height
+        )
+        
+        # Animation state (for smooth expand/collapse)
+        self.target_height = rect.height if initial_expanded else header_height
+        self.current_height = self.target_height
+        self.animation_speed = 10  # pixels per frame
+        
+        # Visual state
+        self.is_hover = False
+    
+    def add_child(self, component: UIComponent) -> None:
+        """Add a child component to the panel"""
+        self.child_components.append(component)
+    
+    def remove_child(self, component: UIComponent) -> None:
+        """Remove a child component from the panel"""
+        if component in self.child_components:
+            self.child_components.remove(component)
+    
+    def toggle(self) -> None:
+        """Toggle expanded/collapsed state"""
+        self.is_expanded = not self.is_expanded
+        if self.is_expanded:
+            self.target_height = self.rect.height
+        else:
+            self.target_height = self.header_height
+    
+    def set_expanded(self, expanded: bool) -> None:
+        """Set expanded state"""
+        if self.is_expanded != expanded:
+            self.toggle()
+    
+    def get_value(self) -> bool:
+        """Get current expanded state"""
+        return self.is_expanded
+    
+    def set_value(self, value: bool) -> None:
+        """Set expanded state"""
+        self.set_expanded(value)
+    
+    def draw(self, screen: pygame.Surface) -> None:
+        """Draw collapsible panel"""
+        # Update animation
+        if abs(self.current_height - self.target_height) > 1:
+            diff = self.target_height - self.current_height
+            self.current_height += math.copysign(
+                min(abs(diff), self.animation_speed), diff
+            )
+        else:
+            self.current_height = self.target_height
+        
+        # Update content visibility based on expansion
+        content_visible = self.is_expanded and self.current_height > self.header_height
+        
+        # Draw header
+        header_color = COLORS.get('BUTTON_HOVER', (200, 200, 200)) if self.is_hover else COLORS.get('BUTTON_NORMAL', (180, 180, 180))
+        pygame.draw.rect(screen, header_color, self.header_rect, border_radius=4)
+        pygame.draw.rect(screen, COLORS.get('PANEL_BORDER', (100, 100, 100)), self.header_rect, 1, border_radius=4)
+        
+        # Draw title
+        if self.font_manager:
+            title_surface = self.font_manager.render_text(self.title, 'BODY', COLORS.get('TEXT_PRIMARY', (0, 0, 0)))
+            title_x = self.header_rect.x + 10
+            title_y = self.header_rect.y + (self.header_height - title_surface.get_height()) // 2
+            screen.blit(title_surface, (title_x, title_y))
+        
+        # Draw expand/collapse indicator (arrow)
+        arrow_size = 8
+        arrow_x = self.header_rect.right - 20
+        arrow_y = self.header_rect.y + self.header_height // 2
+        
+        if self.is_expanded:
+            # Down arrow (▼)
+            points = [
+                (arrow_x - arrow_size, arrow_y - arrow_size // 2),
+                (arrow_x, arrow_y + arrow_size // 2),
+                (arrow_x + arrow_size, arrow_y - arrow_size // 2)
+            ]
+        else:
+            # Right arrow (▶)
+            points = [
+                (arrow_x - arrow_size // 2, arrow_y - arrow_size),
+                (arrow_x + arrow_size // 2, arrow_y),
+                (arrow_x - arrow_size // 2, arrow_y + arrow_size)
+            ]
+        
+        pygame.draw.polygon(screen, COLORS.get('TEXT_PRIMARY', (0, 0, 0)), points)
+        
+        # Draw content area (if expanded)
+        if content_visible:
+            # Clip drawing to content area
+            clip_rect = pygame.Rect(
+                self.content_rect.x,
+                self.content_rect.y,
+                self.content_rect.width,
+                self.current_height - self.header_height
+            )
+            
+            # Draw child components
+            for component in self.child_components:
+                if hasattr(component, 'rect'):
+                    # Check if component is within visible area
+                    if component.rect.bottom <= clip_rect.bottom:
+                        component.draw(screen)
+    
+    def handle_event(self, event: pygame.event.Event) -> bool:
+        """Handle events for collapsible panel"""
+        if event.type == pygame.MOUSEMOTION:
+            mouse_pos = event.pos
+            self.is_hover = self.header_rect.collidepoint(mouse_pos)
+            return False
+        
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            mouse_pos = event.pos
+            if self.header_rect.collidepoint(mouse_pos):
+                self.toggle()
+                return True
+        
+        # Pass events to child components if expanded
+        if self.is_expanded:
+            for component in self.child_components:
+                if hasattr(component, 'handle_event'):
+                    if component.handle_event(event):
+                        return True
+        
+        return False
+    
+    def update_child_positions(self, base_y: int) -> None:
+        """
+        Update positions of child components based on base_y
+        
+        Args:
+            base_y: Base Y coordinate for positioning children
+        """
+        current_y = base_y
+        for component in self.child_components:
+            if hasattr(component, 'rect'):
+                # Update component position
+                component.rect.y = current_y
+                # Calculate next position based on component height
+                if hasattr(component, 'rect'):
+                    current_y = component.rect.bottom + 10  # Add spacing
+
+
 class ButtonGroup(UIComponent):
     """
     Button group component for mutually exclusive selection
