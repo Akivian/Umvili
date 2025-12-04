@@ -343,12 +343,20 @@ class MARLSimulation:
         if self.state == SimulationState.RUNNING:
             self.state = SimulationState.PAUSED
             logging.info("模拟暂停")
+        else:
+            logging.debug(f"尝试暂停但状态不是RUNNING: {self.state.value}")
     
     def resume(self) -> None:
         """恢复模拟"""
         if self.state == SimulationState.PAUSED:
             self.state = SimulationState.RUNNING
             logging.info("模拟恢复")
+        elif self.state == SimulationState.READY:
+            # 如果处于READY状态，直接启动
+            self.state = SimulationState.RUNNING
+            logging.info("从READY状态启动模拟")
+        else:
+            logging.debug(f"尝试恢复但状态不是PAUSED或READY: {self.state.value}")
     
     def reset(self, new_config: Optional[Dict[str, Any]] = None) -> None:
         """
@@ -404,8 +412,28 @@ class MARLSimulation:
         self.metrics_history.clear()
         self.training_metrics.clear()
         
-        # 清空训练器（如果需要重新创建）
-        # 注意：这里不清空，让外部代码决定是否重新创建训练器
+        # 清空旧的训练器（它们引用的智能体将被删除）
+        # 训练器需要重新创建并绑定到新的智能体
+        old_trainers = list(self.marl_trainers.keys())
+        for trainer_type in old_trainers:
+            trainer = self.marl_trainers.get(trainer_type)
+            if trainer:
+                # 清理训练器对旧智能体的引用
+                if hasattr(trainer, 'agent_experiences'):
+                    trainer.agent_experiences.clear()
+                if hasattr(trainer, 'global_state_history'):
+                    trainer.global_state_history.clear()
+                # 清空回放缓冲区（可选，但为了干净的重置，建议清空）
+                if hasattr(trainer, 'replay_buffer'):
+                    try:
+                        trainer.replay_buffer.clear()
+                    except:
+                        pass
+        self.marl_trainers.clear()
+        logging.info("已清空旧训练器，等待重新创建")
+        
+        # 清空智能体管理器（这会删除所有旧智能体）
+        self.agent_manager.clear()
         
         # 重新初始化环境
         self._initialize_environment(env_config)
@@ -419,17 +447,169 @@ class MARLSimulation:
         # 重新初始化智能体
         self._initialize_agents(agent_configs)
         
-        # 如果需要，重新注册训练器（由外部代码处理）
-        # 这里可以添加回调机制，让可视化系统知道需要重新创建训练器
+        # 重置所有智能体的内部状态（确保干净的开始）
+        self._reset_agent_states()
         
-        # 自动重新开始模拟，提升交互体验
+        # 重新创建并注册训练器（如果有需要训练器的智能体类型）
+        self._recreate_trainers()
+        
+        # 恢复运行状态（如果之前正在运行）
+        # 注意：不要自动恢复，让调用者决定
         if was_running:
             self.state = SimulationState.RUNNING
         else:
             self.state = SimulationState.READY
         
         self.start_time = time.time()
-        logging.info(f"模拟重置完成: grid_size={self.grid_size}, agents={len(self.agent_manager)}")
+        logging.info(f"模拟重置完成: grid_size={self.grid_size}, agents={len(self.agent_manager)}, state={self.state.value}")
+    
+    def _reset_agent_states(self) -> None:
+        """
+        重置所有智能体的内部状态
+        
+        确保智能体在reset后有一个干净的开始，避免旧状态影响新运行。
+        """
+        for agent in self.agent_manager.agents:
+            try:
+                # 重置QMIX智能体的状态
+                if hasattr(agent, 'last_state'):
+                    agent.last_state = None
+                if hasattr(agent, 'last_action'):
+                    agent.last_action = None
+                if hasattr(agent, 'last_global_state'):
+                    agent.last_global_state = None
+                if hasattr(agent, 'pending_experience'):
+                    agent.pending_experience = None
+                
+                # 重置IQL智能体的状态
+                if hasattr(agent, 'last_experience'):
+                    agent.last_experience = None
+                
+                # 重置探索率（如果需要）
+                if hasattr(agent, 'epsilon') and hasattr(agent, 'config'):
+                    if hasattr(agent.config, 'epsilon_start'):
+                        agent.epsilon = agent.config.epsilon_start
+                
+                # 重置训练步数
+                if hasattr(agent, 'training_step'):
+                    agent.training_step = 0
+                    
+            except Exception as e:
+                logging.warning(f"重置智能体 {agent.agent_id} 状态失败: {e}")
+    
+    def _recreate_trainers(self) -> None:
+        """
+        重新创建训练器并绑定到新的智能体
+        
+        这个方法会在 reset 后自动调用，确保训练器正确绑定到新创建的智能体。
+        """
+        try:
+            # 检查是否有 QMIX 智能体需要训练器
+            qmix_agents = self.agent_manager.get_agents_by_type("qmix")
+            if qmix_agents and len(qmix_agents) > 0:
+                from src.marl.qmix_trainer import QMIXTrainer
+                
+                # 从第一个 QMIX 智能体获取配置
+                sample_agent = qmix_agents[0]
+                
+                # 获取状态和动作维度
+                if hasattr(sample_agent, 'config'):
+                    config = sample_agent.config
+                    state_dim = getattr(sample_agent, 'state_dim', None) or getattr(config, 'state_dim', 128)
+                    action_dim = getattr(sample_agent, 'action_dim', None) or getattr(config, 'action_dim', 8)
+                else:
+                    # 使用默认值
+                    state_dim = 128
+                    action_dim = 8
+                
+                # 构建训练器配置
+                trainer_config = {}
+                if hasattr(sample_agent, 'config'):
+                    config = sample_agent.config
+                    # 安全地获取配置值
+                    trainer_config = {
+                        'learning_rate': getattr(config, 'learning_rate', 0.0005),
+                        'gamma': getattr(config, 'gamma', 0.99),
+                        'tau': getattr(config, 'tau', 0.005),
+                        'batch_size': getattr(config, 'batch_size', 32),
+                        'replay_buffer_size': getattr(config, 'replay_buffer_size', 10000),
+                        'learning_starts': getattr(config, 'learning_starts', 1000),
+                        'train_frequency': getattr(config, 'train_frequency', 4),
+                        'target_update_frequency': getattr(config, 'target_update_frequency', 200),
+                        'agent_hidden_dims': getattr(config, 'agent_hidden_dims', [64, 64]),
+                        'mixing_hidden_dim': getattr(config, 'mixing_hidden_dim', 32),
+                    }
+                else:
+                    # 使用默认配置
+                    from src.config.defaults import DEFAULT_AGENT_CONFIGS
+                    qmix_defaults = DEFAULT_AGENT_CONFIGS.get('qmix', {})
+                    trainer_config = {
+                        'learning_rate': qmix_defaults.get('learning_rate', 0.0005),
+                        'gamma': qmix_defaults.get('gamma', 0.99),
+                        'tau': qmix_defaults.get('tau', 0.005),
+                        'batch_size': qmix_defaults.get('batch_size', 32),
+                        'replay_buffer_size': qmix_defaults.get('replay_buffer_size', 10000),
+                        'learning_starts': qmix_defaults.get('learning_starts', 1000),
+                        'train_frequency': qmix_defaults.get('train_frequency', 4),
+                        'target_update_frequency': qmix_defaults.get('target_update_frequency', 200),
+                        'agent_hidden_dims': qmix_defaults.get('agent_hidden_dims', [64, 64]),
+                        'mixing_hidden_dim': qmix_defaults.get('mixing_hidden_dim', 32),
+                    }
+                
+                # 确保 num_agents 与实际智能体数量匹配
+                num_agents = len(qmix_agents)
+                
+                # 创建新的 QMIX 训练器
+                qmix_trainer = QMIXTrainer(
+                    num_agents=num_agents,
+                    state_dim=state_dim,
+                    action_dim=action_dim,
+                    config=trainer_config
+                )
+                
+                # 确保训练器的经验缓冲区是空的
+                if hasattr(qmix_trainer, 'agent_experiences'):
+                    qmix_trainer.agent_experiences.clear()
+                if hasattr(qmix_trainer, 'global_state_history'):
+                    qmix_trainer.global_state_history.clear()
+                
+                # 将训练器绑定到所有 QMIX 智能体
+                for agent in qmix_agents:
+                    try:
+                        if hasattr(agent, 'set_trainer'):
+                            agent.set_trainer(qmix_trainer)
+                        # 设置网络引用（如果智能体支持）
+                        if hasattr(agent, 'set_networks'):
+                            # QMIX 训练器使用共享网络，所有智能体共享同一个网络实例
+                            if hasattr(qmix_trainer, 'q_network') and hasattr(qmix_trainer, 'target_q_network'):
+                                agent.set_networks(qmix_trainer.q_network, qmix_trainer.target_q_network)
+                        
+                        # 确保智能体的状态是干净的
+                        if hasattr(agent, 'pending_experience'):
+                            agent.pending_experience = None
+                        if hasattr(agent, 'last_state'):
+                            agent.last_state = None
+                        if hasattr(agent, 'last_action'):
+                            agent.last_action = None
+                            
+                    except Exception as e:
+                        logging.warning(f"绑定训练器到智能体 {agent.agent_id} 失败: {e}")
+                
+                # 同步网络参数到所有 QMIX 智能体（确保所有智能体使用相同的网络）
+                if hasattr(qmix_trainer, 'sync_agent_networks'):
+                    try:
+                        qmix_trainer.sync_agent_networks(qmix_agents)
+                    except Exception as e:
+                        logging.warning(f"同步网络参数失败: {e}")
+                
+                # 在模拟中注册训练器
+                self.register_trainer("qmix", qmix_trainer)
+                logging.info(f"重新创建并注册 QMIX 训练器，绑定到 {num_agents} 个智能体")
+        
+        except Exception as e:
+            logging.error(f"重新创建训练器失败: {e}", exc_info=True)
+            # 即使训练器创建失败，也不应该阻止模拟运行
+            # 只是没有训练功能而已
     
     def _update_config(self, config: Dict[str, Any]) -> None:
         """
@@ -482,8 +662,23 @@ class MARLSimulation:
     
     def _update_environment(self) -> None:
         """更新环境状态"""
-        if hasattr(self.environment, 'grow_back'):
-            self.environment.grow_back()
+        if self.environment is None:
+            return
+        
+        try:
+            if hasattr(self.environment, 'grow_back'):
+                self.environment.grow_back()
+            
+            # 如果资源被禁用，确保资源图保持为空
+            if hasattr(self, 'resource_enabled'):
+                if not self.resource_enabled.get('sugar', True):
+                    self.environment.sugar_map.fill(0.0)
+                if not self.resource_enabled.get('spice', True):
+                    self.environment.spice_map.fill(0.0)
+                if not self.resource_enabled.get('hazard', True):
+                    self.environment.hazard_map.fill(0.0)
+        except Exception as e:
+            logging.error(f"环境更新失败: {e}", exc_info=True)
     
     def _update_agents(self) -> None:
         """更新所有智能体，并记录耗时"""
@@ -496,12 +691,38 @@ class MARLSimulation:
         if not self.marl_trainers or self.step_count % 4 != 0:  # 每4步训练一次
             return
         
-        for agent_type, trainer in self.marl_trainers.items():
+        # 创建训练器列表的副本，避免在迭代时修改字典
+        trainers_to_update = list(self.marl_trainers.items())
+        
+        for agent_type, trainer in trainers_to_update:
             try:
-                if hasattr(trainer, 'train_step'):
-                    trainer.train_step()
+                # 验证训练器是否有效
+                if trainer is None:
+                    logging.warning(f"{agent_type} 训练器为 None，跳过")
+                    continue
+                
+                # 验证训练器是否有必要的方法
+                if not hasattr(trainer, 'train_step'):
+                    logging.warning(f"{agent_type} 训练器缺少 train_step 方法，跳过")
+                    continue
+                
+                # 检查训练器是否引用了已删除的智能体（通过检查 num_agents）
+                if hasattr(trainer, 'num_agents'):
+                    actual_agents = len(self.agent_manager.get_agents_by_type(agent_type))
+                    if trainer.num_agents != actual_agents:
+                        logging.warning(
+                            f"{agent_type} 训练器的智能体数量 ({trainer.num_agents}) "
+                            f"与实际数量 ({actual_agents}) 不匹配，跳过训练"
+                        )
+                        continue
+                
+                # 执行训练步骤
+                trainer.train_step()
+                
             except Exception as e:
                 logging.warning(f"{agent_type} 训练失败: {e}")
+                # 如果训练器持续失败，可以考虑移除它
+                # 但这里只记录警告，不自动移除，避免频繁创建/删除训练器
     
     def _collect_metrics(self) -> None:
         """收集模拟指标"""

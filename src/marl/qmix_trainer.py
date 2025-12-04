@@ -178,8 +178,16 @@ class QMIXTrainer:
             self.agent_experiences[agent_id] = experience
             
             # 如果收集到所有智能体的经验，形成联合经验
+            # 注意：如果智能体数量不匹配（例如有智能体死亡），需要超时机制
             if len(self.agent_experiences) == self.num_agents:
                 self._form_joint_experience()
+            elif len(self.agent_experiences) > self.num_agents:
+                # 如果经验数量超过预期，说明可能有旧的经验残留，清空并记录警告
+                self.logger.warning(
+                    f"经验数量异常: {len(self.agent_experiences)} > {self.num_agents}，"
+                    f"可能是智能体数量变化或旧经验残留，清空经验缓冲区"
+                )
+                self.agent_experiences.clear()
         except Exception as e:
             self.logger.error(f"存储智能体经验失败: {e}", exc_info=True)
 
