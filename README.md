@@ -17,8 +17,8 @@ The platform features a sophisticated multi-resource environment with dynamic re
 - 🎯 **Multiple Algorithms**: Support for IQL, QMIX, and rule-based agents (conservative, exploratory, adaptive)
 - 🌍 **Complex Multi-Resource Environment**:
   - **Sugar**: Basic resource with continuous regeneration across the map
-  - **Spice**: High-value rare resource that spawns in concentrated areas, depletes, and respawns randomly
-  - **Hazard**: Dynamic danger zones that spread from random core points, causing severe penalties to agents
+  - **Spice**: High-value rare resource that spawns in 1–2 small concentrated areas, depletes, and respawns after a delay in new safe regions
+  - **Hazard**: Dynamic danger zones evolving from a single random core point. The core region grows gradually and forms a large connected danger area that stabilizes around ~1/3 of the map with a “breathing” boundary, permanently clearing resources and dealing configurable damage per step to agents.
 - 📊 **Advanced Visualization**: 
   - Real-time training metrics (Loss, Q-value, TD Error, Exploration Rate)
   - Behavior analysis (Action Distribution, Reward Trends, Policy Entropy)
