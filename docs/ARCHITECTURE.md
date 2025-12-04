@@ -82,8 +82,8 @@ Umvili/
 
 **Environment System**:
 - **Sugar**: Basic resource with two main hills, continuous regeneration
-- **Spice**: High-value rare resource that spawns in 1-2 concentrated areas, depletes, and respawns after delay
-- **Hazard**: Dynamic danger zones that spread from random core points, causing resource depletion and agent damage
+- **Spice**: High-value rare resource that spawns in 1–2 concentrated areas, depletes, and respawns after a delay in new safe regions
+- **Hazard**: Dynamic danger zones evolving from a single random core point. The core region grows gradually and forms a large connected danger area that stabilizes around ~1/3 of the map with a “breathing” boundary (local expansion/shrinkage), while permanently clearing resources in hazard cells and dealing configurable damage per step to agents.
 
 **Design Patterns**:
 - Factory Pattern: Agent creation

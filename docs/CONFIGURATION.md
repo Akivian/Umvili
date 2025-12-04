@@ -45,7 +45,9 @@ Controls the simulation environment:
     "cell_size": 10,
     "initial_agents": 50,
     "sugar_growth_rate": 0.1,
-    "max_sugar": 10.0
+    "max_sugar": 10.0,
+    "hazard_decay_rate": 0.0,
+    "hazard_target_fraction": 0.33
   }
 }
 ```

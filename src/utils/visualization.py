@@ -3350,6 +3350,11 @@ class AcademicVisualizationSystem:
                     # Load current config when simulation becomes available
                     self.experiment_panel._load_current_config()
             
+            # 当前模拟状态（用于控制“暂停时是否更新图表/热图”等行为）
+            sim_state = simulation_data.get('state', 'unknown')
+            is_running = (sim_state == 'running')
+            is_paused = (sim_state == 'paused')
+            
             # Clear screen with academic background
             screen.fill(COLORS['BACKGROUND'])
             
@@ -3391,8 +3396,10 @@ class AcademicVisualizationSystem:
                     
                     environment = simulation.environment
                     if environment is not None:
-                        # 更新Q值热图数据（即使未启用也更新，以便快速响应开关）
-                        if self.q_value_heatmap.enabled:
+                        # Q值热图在「运行中」和「暂停」两种状态下都允许持续更新：
+                        # - 运行中：跟随训练动态变化
+                        # - 暂停：在环境静止的前提下，逐步补全当前时刻的Q值图，然后稳定显示
+                        if self.q_value_heatmap.enabled and (is_running or is_paused):
                             self.q_value_heatmap.update(agents_by_type, environment)
                         # 绘制Q值热图和开关按钮（开关按钮始终显示）
                         self.q_value_heatmap.draw(screen, self.grid_size, self.cell_size, env_x, env_y)
@@ -3409,7 +3416,10 @@ class AcademicVisualizationSystem:
             # 根据当前视图绘制对应内容
             if self.active_view == "training":
                 # 训练视图：Loss / Q / TD / Exploration + 类型分布
-                self._update_training_charts(simulation_data)
+                # 注意：在「暂停」状态下不再向图表追加新数据，只渲染已有历史，
+                # 这样时间轴会真正冻结在暂停的步数上。
+                if is_running:
+                    self._update_training_charts(simulation_data)
                 for chart in self.training_charts.values():
                     chart.draw(screen)
 
@@ -3448,7 +3458,9 @@ class AcademicVisualizationSystem:
 
             elif self.active_view == "behavior":
                 # 行为视图：Reward Trend + Policy Entropy + 动作分布 + 网络状态
-                self._update_behavior_charts(simulation_data)
+                # 同样在暂停时冻结 Reward / Entropy 等曲线，只保留 Q-heatmap 的补全更新。
+                if is_running:
+                    self._update_behavior_charts(simulation_data)
 
                 last_bottom = self.charts_top
                 for chart_id in ["reward_trend", "policy_entropy"]:
