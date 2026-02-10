@@ -96,14 +96,14 @@ Umvili/
     └── utils/             # Utility modules
 ```
 
-For detailed project structure, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+For detailed project structure, see [docs/reference/ARCHITECTURE.md](docs/reference/ARCHITECTURE.md).
 
 ## Documentation
 
-- [Architecture Documentation](docs/ARCHITECTURE.md) - Project structure and design
-- [Configuration Guide](docs/CONFIGURATION.md) - Configuration management
-- [Development Guide](docs/DEVELOPMENT.md) - Development setup and guidelines
-- [Version Control Guide](docs/VERSION_CONTROL_GUIDE.md) - Git workflow and best practices
+- [Architecture Documentation](docs/reference/ARCHITECTURE.md) - Project structure and design
+- [Configuration Guide](docs/reference/CONFIGURATION.md) - Configuration management
+- [Development Guide](docs/reference/DEVELOPMENT.md) - Development setup and guidelines
+- [Version Control Guide](docs/reference/VERSION_CONTROL_GUIDE.md) - Git workflow and best practices
 - [中文文档](docs/zh/README.md) - Chinese documentation
 - [项目路线图](docs/zh/PROJECT_ROADMAP.md) - Chinese project roadmap
 
@@ -115,7 +115,7 @@ The project supports flexible configuration through:
 - **Command-line arguments**: Override specific settings
 - **Code configuration**: Programmatic configuration
 
-For detailed configuration options, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+For detailed configuration options, see [docs/reference/CONFIGURATION.md](docs/reference/CONFIGURATION.md).
 
 ## Development
 

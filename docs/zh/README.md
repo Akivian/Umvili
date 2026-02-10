@@ -103,9 +103,9 @@ Umvili/
 
 ## 文档
 
-- [架构文档](../ARCHITECTURE.md) - 项目结构和设计
-- [配置指南](../CONFIGURATION.md) - 配置管理说明
-- [开发指南](../DEVELOPMENT.md) - 开发设置和规范
+- [架构文档](../reference/ARCHITECTURE.md) - 项目结构和设计
+- [配置指南](../reference/CONFIGURATION.md) - 配置管理说明
+- [开发指南](../reference/DEVELOPMENT.md) - 开发设置和规范
 
 ## 配置说明
 
@@ -115,7 +115,7 @@ Umvili/
 - **命令行参数**：覆盖特定设置
 - **代码配置**：程序化配置
 
-详细配置说明请参考 [配置指南](../CONFIGURATION.md)。
+详细配置说明请参考 [配置指南](../reference/CONFIGURATION.md)。
 
 ## 开发
 

@@ -731,10 +731,10 @@ class UIComponent:
 
 ## 🔗 相关文档
 
-- [架构设计](../ARCHITECTURE.md)
-- [配置指南](../CONFIGURATION.md)
-- [开发指南](../DEVELOPMENT.md)
-- [MultiLineChart 使用指南](../MULTILINE_CHART_USAGE.md)
+- [架构设计](../reference/ARCHITECTURE.md)
+- [配置指南](../reference/CONFIGURATION.md)
+- [开发指南](../reference/DEVELOPMENT.md)
+- [MultiLineChart 使用指南](../reference/MULTILINE_CHART_USAGE.md)
 
 ---
 
