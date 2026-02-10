@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>UMVILI - 多智能体强化学习可视化平台</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta
+      name="description"
+      content="UMVILI 是一个面向教学与研究的多智能体强化学习可视化平台，支持 IQL、QMIX 与多种规则型智能体的实时可视化与算法对比。"
+    />
+    <link rel="stylesheet" href="assets/css/style.css" />
+  </head>
+  <body>
+    <!-- 顶部导航 -->
+    <header class="site-header">
+      <div class="site-header__inner container">
+        <a href="#home" class="site-header__brand">
+          <span class="site-header__logo">UMVILI</span>
+          <span class="site-header__tagline">
+            Multi‑Agent RL Visualization
+          </span>
+        </a>
+
+        <nav class="site-nav" aria-label="主导航">
+          <button
+            class="site-nav__toggle"
+            type="button"
+            aria-label="切换菜单"
+            aria-expanded="false"
+            aria-controls="site-nav-menu"
+          >
+            <span class="site-nav__toggle-line"></span>
+            <span class="site-nav__toggle-line"></span>
+            <span class="site-nav__toggle-line"></span>
+          </button>
+
+          <ul class="site-nav__list" id="site-nav-menu">
+            <li class="site-nav__item">
+              <a class="site-nav__link" href="#home">首页</a>
+            </li>
+            <li class="site-nav__item">
+              <a class="site-nav__link" href="#project">项目简介</a>
+            </li>
+            <li class="site-nav__item">
+              <a class="site-nav__link" href="#features">核心功能</a>
+            </li>
+            <li class="site-nav__item">
+              <a class="site-nav__link" href="#demo">项目展示</a>
+            </li>
+            <li class="site-nav__item">
+              <a class="site-nav__link" href="#tutorial">使用指南</a>
+            </li>
+            <li class="site-nav__item">
+              <a class="site-nav__link" href="#tech">技术细节</a>
+            </li>
+            <li class="site-nav__item">
+              <a class="site-nav__link" href="#about">关于</a>
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <!-- 首页 / Hero 区 -->
+      <section id="home" class="section section--hero">
+        <div class="container section__inner section__inner--hero">
+          <div class="hero__content">
+            <h1 class="hero__title">
+              UMVILI
+              <span class="hero__title-accent">多智能体强化学习可视化平台</span>
+            </h1>
+            <p class="hero__subtitle">
+              面向教学与研究的多智能体强化学习 (MARL) 算法对比与可视化沙盘，
+              支持 IQL、QMIX 与多种规则型智能体的实时可视化与行为分析。
+            </p>
+            <div class="hero__actions">
+              <a class="btn btn--primary" href="#project">了解项目</a>
+              <a class="btn btn--ghost" href="#tutorial">开始使用</a>
+            </div>
+            <div class="hero__highlights">
+              <div class="hero-highlight">
+                <h3 class="hero-highlight__title">实时训练可视化</h3>
+                <p class="hero-highlight__text">
+                  Loss、Q 值、TD Error、奖励与策略熵等多维指标一屏呈现。
+                </p>
+              </div>
+              <div class="hero-highlight">
+                <h3 class="hero-highlight__title">多智能体与多资源环境</h3>
+                <p class="hero-highlight__text">
+                  Sugar / Spice / Hazard 复合环境下的协作、竞争与风险规避。
+                </p>
+              </div>
+              <div class="hero-highlight">
+                <h3 class="hero-highlight__title">面向教学与科研</h3>
+                <p class="hero-highlight__text">
+                  为课堂演示、算法对比与实验分析精心设计的多视图交互界面。
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="hero__media">
+            <!-- TODO: 在此放置代表性截图 / 动图 -->
+            <div class="hero-preview">
+              <div class="hero-preview__window">
+                <div class="hero-preview__header">
+                  <span></span><span></span><span></span>
+                </div>
+                <div class="hero-preview__body">
+                  <p class="hero-preview__placeholder">
+                    预留位置：环境 + 训练曲线 + Q 值热图的组合截图
+                  </p>
+                </div>
+              </div>
+              <p class="hero-preview__caption">
+                示例：多智能体在多资源环境中的实时训练与行为可视化
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 项目简介 & 背景 -->
+      <section id="project" class="section section--alt">
+        <div class="container section__inner">
+          <header class="section__header">
+            <h2 class="section__title">项目简介与背景</h2>
+            <p class="section__subtitle">
+              从教学与研究视角出发，解释 UMVILI
+              试图解决的问题与设计初衷。
+            </p>
+          </header>
+
+          <div class="grid grid--2cols">
+            <article class="card">
+              <h3 class="card__title">项目动机</h3>
+              <p class="card__text">
+                强化学习尤其是多智能体强化学习的训练过程与内部状态往往“不可见”，
+                学生和初学者难以直观理解算法如何学习、何时收敛以及为何失败。UMVILI
+                旨在通过可视化与交互式沙盘，为教学与研究提供一个“可观察、可解释”的环境。
+              </p>
+            </article>
+
+            <article class="card">
+              <h3 class="card__title">目标与使用场景</h3>
+              <ul class="card__list">
+                <li>课堂演示强化学习 / 多智能体协作与竞争过程</li>
+                <li>供学生完成课程项目或实验报告时使用</li>
+                <li>研究者快速对比 IQL / QMIX 与规则型策略的行为与性能</li>
+                <li>在复杂多资源环境下分析策略的泛化与稳定性</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- 核心功能 -->
+      <section id="features" class="section">
+        <div class="container section__inner">
+          <header class="section__header">
+            <h2 class="section__title">核心功能与特点</h2>
+            <p class="section__subtitle">
+              围绕“可视化”“多智能体”“教学友好”三大方向设计的功能模块。
+            </p>
+          </header>
+
+          <div class="features">
+            <div class="features__group">
+              <h3 class="features__group-title">多智能体与算法对比</h3>
+              <ul class="features__list">
+                <li>支持 IQL、QMIX 以及多种规则型智能体（保守型、探索型、自适应）</li>
+                <li>同一环境中对比不同算法的收敛速度与最终表现</li>
+                <li>支持多智能体之间的协作与竞争场景建模</li>
+              </ul>
+            </div>
+
+            <div class="features__group">
+              <h3 class="features__group-title">复杂多资源环境</h3>
+              <ul class="features__list">
+                <li>Sugar / Spice / Hazard 组成的多资源 Sugarscape 环境</li>
+                <li>动态生成与消失的高价值资源与危险区</li>
+                <li>支持资源竞争、风险规避与策略迁移等教学示例</li>
+              </ul>
+            </div>
+
+            <div class="features__group">
+              <h3 class="features__group-title">丰富的可视化视图</h3>
+              <ul class="features__list">
+                <li>训练视图：Loss、Q 值、TD Error、探索率等多线曲线</li>
+                <li>行为视图：动作分布、奖励趋势、策略熵</li>
+                <li>Q 值热图：在地图上直观展示策略价值分布</li>
+                <li>Network / Debug 视图：网络状态与性能指标监控</li>
+              </ul>
+            </div>
+
+            <div class="features__group">
+              <h3 class="features__group-title">交互式实验配置</h3>
+              <ul class="features__list">
+                <li>通过 Experiment 视图配置算法组合、环境参数与超参数</li>
+                <li>支持一键重置与场景切换，便于课堂演示与对比实验</li>
+                <li>配置基于 JSON/YAML，可与命令行选项结合使用</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 项目展示 + 交互式说明 -->
+      <section id="demo" class="section section--alt">
+        <div class="container section__inner">
+          <header class="section__header">
+            <h2 class="section__title">项目展示与交互示例</h2>
+            <p class="section__subtitle">
+              通过具体场景讲述 UMVILI 在教学与研究中的典型使用方式。
+            </p>
+          </header>
+
+          <div class="demo">
+            <!-- Demo 卡片示例：后续可替换为真实截图 / GIF / 交互图表 -->
+            <article class="demo-card">
+              <h3 class="demo-card__title">Demo 1：IQL 与规则型智能体对比</h3>
+              <p class="demo-card__text">
+                在固定资源配置下，让 IQL 与保守型 / 探索型规则策略同时在环境中运行，
+                对比其学习曲线与最终策略分布。适合课堂演示“学习型 vs
+                规则型”的行为差异。
+              </p>
+              <div class="demo-card__media demo-card__media--placeholder">
+                <!-- TODO: 替换为真实的实验截图或动图 -->
+                <span>预留：IQL vs Rule-based 行为与曲线展示图</span>
+              </div>
+            </article>
+
+            <article class="demo-card">
+              <h3 class="demo-card__title">Demo 2：QMIX 在协作任务中的表现</h3>
+              <p class="demo-card__text">
+                通过多智能体协作采集高价值资源并躲避危险区，展示 QMIX
+                在集中式训练、分布式执行场景下的优势，并配合 Q 值热图与动作分布帮助学生理解协作策略。
+              </p>
+              <div class="demo-card__media demo-card__media--placeholder">
+                <span>预留：QMIX 协作场景与 Q 值热图展示图</span>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- 使用指南 & 教程 -->
+      <section id="tutorial" class="section">
+        <div class="container section__inner">
+          <header class="section__header">
+            <h2 class="section__title">使用指南与教程</h2>
+            <p class="section__subtitle">
+              面向学生与教师的分步骤上手指南，帮助快速在本地运行 UMVILI。
+            </p>
+          </header>
+
+          <div class="tutorial">
+            <article class="tutorial__block">
+              <h3 class="tutorial__title">快速开始</h3>
+              <ol class="tutorial__steps">
+                <li>安装 Python 3.8+ 与必要依赖（PyTorch、Pygame 等）。</li>
+                <li>克隆仓库并安装依赖：参考 README 中的 Installation 部分。</li>
+                <li>在命令行运行 <code>python main.py</code> 启动可视化界面。</li>
+              </ol>
+              <p class="tutorial__note">
+                详细步骤与配置示例可参考主仓库的
+                <code>README.md</code> 与 <code>docs/zh/README.md</code>。
+              </p>
+            </article>
+
+            <article class="tutorial__block">
+              <h3 class="tutorial__title">键盘与交互操作速查</h3>
+              <div class="tutorial__table-wrapper">
+                <table class="tutorial-table">
+                  <thead>
+                    <tr>
+                      <th>操作</th>
+                      <th>说明</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>Space</code></td>
+                      <td>暂停 / 继续模拟</td>
+                    </tr>
+                    <tr>
+                      <td><code>R</code></td>
+                      <td>重置当前实验</td>
+                    </tr>
+                    <tr>
+                      <td><code>F</code></td>
+                      <td>切换全屏模式</td>
+                    </tr>
+                    <tr>
+                      <td>Tab / 点击界面标签</td>
+                      <td>在 Overview / Training / Behavior / Debug / Experiment 视图间切换</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- 技术细节 & 架构 -->
+      <section id="tech" class="section section--alt">
+        <div class="container section__inner">
+          <header class="section__header">
+            <h2 class="section__title">技术细节与架构</h2>
+            <p class="section__subtitle">
+              面向研究者和工程师，概览 UMVILI 的模块划分、数据流与扩展方式。
+            </p>
+          </header>
+
+          <div class="grid grid--2cols">
+            <article class="card">
+              <h3 class="card__title">技术栈概览</h3>
+              <ul class="card__list">
+                <li>语言：Python 3.8+</li>
+                <li>深度学习：PyTorch（DQN / Double DQN / QMIX 等）</li>
+                <li>可视化与 UI：Pygame 多视图界面</li>
+                <li>数据处理：NumPy、Pandas</li>
+                <li>配置管理：JSON / YAML + 命令行参数</li>
+              </ul>
+            </article>
+
+            <article class="card">
+              <h3 class="card__title">整体架构（高层）</h3>
+              <p class="card__text">
+                项目整体可分为四层：环境与智能体（Environment / Agents）、模拟与调度（MARLSimulation）、强化学习算法（MARL
+                Agents & Trainers）、可视化系统（VisualizationSystem）。详细结构可参考
+                <code>docs/ARCHITECTURE.md</code> 与 <code>docs/zh/</code> 下的中文文档。
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- 关于 & 联系方式 -->
+      <section id="about" class="section section--tight">
+        <div class="container section__inner">
+          <header class="section__header">
+            <h2 class="section__title">关于项目与联系方式</h2>
+          </header>
+
+          <div class="about">
+            <p class="about__text">
+              UMVILI
+              最初由开源社区发起，旨在为强化学习与多智能体系统教学提供一个高可视化、易扩展的平台。
+              本站点用于介绍项目背景、展示典型场景，并为学生、教师与研究者提供快速上手指引。
+            </p>
+            <ul class="about__links">
+              <li>
+                项目源码：
+                <a
+                  href="https://github.com/Akivian/Umvili"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  >GitHub - Akivian / Umvili</a
+                >
+              </li>
+              <!-- TODO: 根据实际情况补充你的个人主页 / 邮箱 / 机构信息等 -->
+            </ul>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container site-footer__inner">
+        <p class="site-footer__text">
+          © <span id="js-current-year"></span> UMVILI · Multi-Agent RL
+          Visualization
+        </p>
+        <p class="site-footer__text">
+          文档与更多技术细节请参见仓库中的 <code>docs/</code> 与
+          <code>docs/zh/</code> 目录。
+        </p>
+      </div>
+    </footer>
+
+    <script src="assets/js/main.js"></script>
+  </body>
+</html>
+
