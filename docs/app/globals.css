@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #000000;
+  --foreground: #ffffff;
+  --muted: #a1a1aa;
+  --border: #27272a;
+  --border-subtle: #18181b;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-feature-settings: 'rlig' 1, 'calt' 1;
+}
+
+/* Hairline borders */
+.hairline {
+  border-width: 1px;
+  border-color: var(--border);
+}
+
+.hairline-subtle {
+  border-width: 1px;
+  border-color: var(--border-subtle);
+}
+
+/* Monospace for terminal/code */
+.font-mono {
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+}
