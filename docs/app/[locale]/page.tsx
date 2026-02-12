@@ -1,5 +1,5 @@
-import { getMessages } from '../../lib/i18n';
-import type { Locale } from '../../lib/i18n';
+import { getMessages } from '../../common/i18n';
+import type { Locale } from '../../common/i18n';
 import { HeroSection } from '../../components/sections/HeroSection';
 import { BackgroundSection } from '../../components/sections/BackgroundSection';
 import { BentoSection } from '../../components/sections/BentoSection';

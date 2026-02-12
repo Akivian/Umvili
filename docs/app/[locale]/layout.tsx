@@ -1,8 +1,8 @@
 import { notFound } from 'next/navigation';
-import { locales, type Locale } from '../../lib/i18n';
+import { locales, type Locale } from '../../common/i18n';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import Link from 'next/link';
-import { getMessages } from '../../lib/i18n';
+import { getMessages } from '../../common/i18n';
 
 export function generateStaticParams() {
   return locales.map((locale) => ({ locale }));
