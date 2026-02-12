@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { TechnicalHeader } from '@/components/design-system';
+import { TechnicalHeader } from '../design-system';
 
 interface ShowcaseSectionProps {
   title: string;

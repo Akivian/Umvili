@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { HairlineCard, TechnicalHeader } from '@/components/design-system';
+import { HairlineCard, TechnicalHeader } from '../design-system';
 
 interface BackgroundSectionProps {
   originTitle: string;

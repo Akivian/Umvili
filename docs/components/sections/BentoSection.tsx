@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { HairlineCard, TechnicalHeader } from '@/components/design-system';
+import { HairlineCard, TechnicalHeader } from '../design-system';
 import { Cpu, Layers, LineChart, Settings } from 'lucide-react';
 
 const iconClass = 'w-5 h-5 text-[#A1A1AA] stroke-[1.5px]';

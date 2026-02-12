@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { cn } from '@/lib/utils';
-import { locales, type Locale } from '@/lib/i18n';
+import { cn } from '../lib/utils';
+import { locales, type Locale } from '../lib/i18n';
 
 const labels: Record<Locale, string> = { en: 'EN', zh: '中文' };
 

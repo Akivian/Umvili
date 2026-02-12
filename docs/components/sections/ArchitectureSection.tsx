@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { TechnicalHeader, HairlineCard } from '@/components/design-system';
+import { TechnicalHeader, HairlineCard } from '../design-system';
 
 interface ArchitectureSectionProps {
   title: string;

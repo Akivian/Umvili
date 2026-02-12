@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { TechnicalHeader } from '@/components/design-system';
+import { TechnicalHeader } from '../design-system';
 
 const steps = [
   { id: 1, label: 'Clone & install', code: 'git clone https://github.com/Akivian/Umvili.git && cd Umvili && pip install -r requirements.txt' },

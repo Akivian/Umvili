@@ -1,12 +1,12 @@
-import { getMessages } from '@/lib/i18n';
-import type { Locale } from '@/lib/i18n';
-import { HeroSection } from '@/components/sections/HeroSection';
-import { BackgroundSection } from '@/components/sections/BackgroundSection';
-import { BentoSection } from '@/components/sections/BentoSection';
-import { ShowcaseSection } from '@/components/sections/ShowcaseSection';
-import { ArchitectureSection } from '@/components/sections/ArchitectureSection';
-import { GuideSection } from '@/components/sections/GuideSection';
-import { ContactSection } from '@/components/sections/ContactSection';
+import { getMessages } from '../../lib/i18n';
+import type { Locale } from '../../lib/i18n';
+import { HeroSection } from '../../components/sections/HeroSection';
+import { BackgroundSection } from '../../components/sections/BackgroundSection';
+import { BentoSection } from '../../components/sections/BentoSection';
+import { ShowcaseSection } from '../../components/sections/ShowcaseSection';
+import { ArchitectureSection } from '../../components/sections/ArchitectureSection';
+import { GuideSection } from '../../components/sections/GuideSection';
+import { ContactSection } from '../../components/sections/ContactSection';
 
 export default function Home({ params }: { params: { locale: string } }) {
   const locale = params.locale as Locale;
