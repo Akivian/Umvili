@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import {
   GitBranch,
   Network,
+  GitFork,
   LayoutGrid,
   Map,
   LayoutList,
@@ -22,7 +23,6 @@ import { LayerBox, TechLabel } from '../architecture';
 export interface ArchitectureLabels {
   title: string;
   subtitle: string;
-  marlDeepDive: string;
   presentation: string;
   coreLayer: string;
   configLayer: string;
@@ -37,11 +37,13 @@ export interface ArchitectureLabels {
   tabsBehavior: string;
   configEntry: string;
   envEngine: string;
+  marlMaster: string;
   marlSimplified: string;
   logicController: string;
   analyticsHub: string;
   dataSnapshot: string;
   snapshotLabels: string;
+  algorithmImpl: string;
   defaults: string;
   loaderCopy: string;
   schemaAppSimUi: string;
@@ -70,113 +72,84 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
         >
           <TechnicalHeader title={labels.title} subtitle={labels.subtitle} />
 
-          {/* Grid: Top (40/60), Middle (full), Bottom (full) */}
-          <div className="mt-10 grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-6 overflow-hidden">
-            {/* ─── Top Row Left: MARL Deep-Dive (40%) ─── */}
-            <div className="overflow-hidden rounded-sm min-w-0">
-              <LayerBox layout delay={0} className="min-h-[220px]">
-                <TechLabel className="block mb-3">{labels.marlDeepDive}</TechLabel>
-                <div className="space-y-4">
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2 text-white font-mono text-xs">
-                      <GitBranch {...ICON_PROPS} className="text-zinc-500 shrink-0" />
-                      {labels.modIql}
-                    </div>
-                    <ul className="pl-5 font-mono text-xs text-zinc-500 space-y-0.5">
-                      <li>{labels.iqlQNet}</li>
-                      <li>{labels.iqlPolicy}</li>
-                      <li>{labels.iqlPER}</li>
-                      <li>{labels.iqlTarget}</li>
-                    </ul>
-                  </div>
-                  <div className="border-t border-zinc-800 pt-3 space-y-1.5">
-                    <div className="flex items-center gap-2 text-white font-mono text-xs">
-                      <Network {...ICON_PROPS} className="text-zinc-500 shrink-0" />
-                      {labels.modQmix}
-                    </div>
-                    <ul className="pl-5 font-mono text-xs text-zinc-500 space-y-0.5">
-                      <li>{labels.qmixMixing}</li>
-                      <li>{labels.qmixHyper}</li>
-                      <li>{labels.qmixAgentNets}</li>
-                    </ul>
-                  </div>
-                </div>
-              </LayerBox>
-            </div>
-
-            {/* ─── Top Row Right: Presentation Layer (60%) ─── */}
-            <div className="overflow-hidden rounded-sm min-w-0">
-              <LayerBox layout delay={0.05} className="min-h-[220px]">
-                <TechLabel className="block mb-3">{labels.presentation}</TechLabel>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <TechLabel className="flex items-center gap-1.5 mb-1">
-                      <ArrowDown {...ICON_PROPS} /> {labels.simData} (Input)
-                    </TechLabel>
-                    <p className="font-mono text-xs text-zinc-500">State, Metrics</p>
-                  </div>
-                  <div>
-                    <TechLabel className="flex items-center gap-1.5 mb-1">
-                      <Map {...ICON_PROPS} /> {labels.maps}
-                    </TechLabel>
-                    <p className="font-mono text-xs text-zinc-500">
-                      {labels.mapsSugar}, {labels.mapsSpice}, {labels.mapsHazard}
-                    </p>
-                  </div>
-                  <div>
-                    <TechLabel className="flex items-center gap-1.5 mb-1">
-                      <LayoutList {...ICON_PROPS} /> {labels.tabs}
-                    </TechLabel>
-                    <p className="font-mono text-xs text-zinc-500">
-                      {labels.tabsOverview}, {labels.tabsBehavior}, …
-                    </p>
-                  </div>
-                  <div>
-                    <TechLabel className="flex items-center gap-1.5 mb-1">
-                      <Settings {...ICON_PROPS} /> {labels.configBuilder} (Output)
-                    </TechLabel>
-                    <p className="font-mono text-xs text-zinc-500">Config → Core</p>
-                  </div>
-                </div>
-              </LayerBox>
-            </div>
-          </div>
-
-          {/* ─── Middle Row: Core Pipeline (full width) ─── */}
+          {/* Level 1: PRESENTATION LAYER — clean horizontal row */}
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: '-30px' }}
-            transition={{ type: 'spring', stiffness: 120, damping: 20, delay: 0.1 }}
+            transition={{ type: 'spring', stiffness: 120, damping: 20, delay: 0 }}
+            className="mt-10"
+          >
+            <LayerBox className="min-h-[88px]">
+              <TechLabel className="block mb-3">{labels.presentation}</TechLabel>
+              <div className="flex flex-wrap items-center gap-6 sm:gap-8">
+                <PresentationModule icon={ArrowDown} label={`${labels.simData} (Input)`} sub="State, Metrics" />
+                <PresentationModule icon={Map} label={labels.maps} sub={`${labels.mapsSugar}, ${labels.mapsSpice}, ${labels.mapsHazard}`} />
+                <PresentationModule icon={LayoutList} label={labels.tabs} sub={`${labels.tabsOverview}, ${labels.tabsBehavior}, …`} />
+                <PresentationModule icon={Settings} label={`${labels.configBuilder} (Output)`} sub="Config → Core" />
+              </div>
+            </LayerBox>
+          </motion.div>
+
+          {/* Level 2: CORE LAYER (SIMULATION ENGINE) — largest container, shell */}
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: '-30px' }}
+            transition={{ type: 'spring', stiffness: 120, damping: 20, delay: 0.05 }}
             className="mt-6"
           >
-            <LayerBox className="min-h-[100px]">
-              <TechLabel className="block mb-3">{labels.coreLayer}</TechLabel>
+            <div className="rounded-sm border border-zinc-800 bg-zinc-950/50 p-6 overflow-hidden">
+              <TechLabel className="block mb-4">{labels.coreLayer}</TechLabel>
+
+              {/* Pipeline: Config Entry → Env Engine → MARL Master → Logic Controller → Analytics Hub */}
               <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                 <PipelineNode icon={Settings} label={labels.configEntry} />
                 <ArrowRight {...ICON_PROPS} className="text-zinc-600 shrink-0" />
                 <PipelineNode icon={Cpu} label={labels.envEngine} />
                 <ArrowRight {...ICON_PROPS} className="text-zinc-600 shrink-0" />
-                <PipelineNode icon={Boxes} label={labels.marlSimplified} id="core-marl-node" />
+                <PipelineNode icon={Boxes} label={labels.marlMaster} />
                 <ArrowRight {...ICON_PROPS} className="text-zinc-600 shrink-0" />
                 <PipelineNode icon={LayoutGrid} label={labels.logicController} />
                 <ArrowRight {...ICON_PROPS} className="text-zinc-600 shrink-0" />
                 <PipelineNode icon={BarChart3} label={labels.analyticsHub} />
               </div>
-              <div className="mt-4 pt-3 border-t border-zinc-800 flex items-center gap-2">
+
+              {/* Level 3 (nested in Core): ALGORITHM IMPLEMENTATIONS — MARL portal sub-grid */}
+              <div className="mt-6 pt-5 border-t border-zinc-800">
+                <TechLabel className="block mb-3">{labels.algorithmImpl}</TechLabel>
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-4 items-start">
+                  <MarlCard
+                    icon={GitBranch}
+                    title={labels.modIql}
+                    items={[labels.iqlQNet, labels.iqlPolicy, labels.iqlPER, labels.iqlTarget]}
+                  />
+                  <div className="hidden sm:flex items-center justify-center pt-8 text-zinc-600" aria-hidden>
+                    <GitFork size={18} strokeWidth={1} />
+                  </div>
+                  <MarlCard
+                    icon={Network}
+                    title={labels.modQmix}
+                    items={[labels.qmixMixing, labels.qmixHyper, labels.qmixAgentNets]}
+                  />
+                </div>
+              </div>
+
+              {/* Exit: Simulation Data Snapshot at bottom of Core */}
+              <div className="mt-6 pt-4 border-t border-zinc-800 flex items-center gap-2">
                 <ArrowDown {...ICON_PROPS} className="text-zinc-500 shrink-0" />
                 <TechLabel>{labels.dataSnapshot}</TechLabel>
                 <span className="font-mono text-xs text-zinc-600">[{labels.snapshotLabels}]</span>
               </div>
-            </LayerBox>
+            </div>
           </motion.div>
 
-          {/* ─── Bottom Row: Configuration Layer ─── */}
+          {/* Level 4: CONFIGURATION LAYER */}
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: '-30px' }}
-            transition={{ type: 'spring', stiffness: 120, damping: 20, delay: 0.15 }}
+            transition={{ type: 'spring', stiffness: 120, damping: 20, delay: 0.1 }}
             className="mt-6"
           >
             <LayerBox>
@@ -190,10 +163,29 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
               </div>
             </LayerBox>
           </motion.div>
-
         </motion.div>
       </div>
     </section>
+  );
+}
+
+function PresentationModule({
+  icon: Icon,
+  label,
+  sub,
+}: {
+  icon: React.ElementType;
+  label: string;
+  sub: string;
+}) {
+  return (
+    <div className="flex items-start gap-2 min-w-0">
+      <Icon {...ICON_PROPS} className="text-zinc-500 shrink-0 mt-0.5" />
+      <div>
+        <span className="font-mono text-xs text-white">{label}</span>
+        <p className="font-mono text-xs text-zinc-500 mt-0.5">{sub}</p>
+      </div>
+    </div>
   );
 }
 
@@ -217,3 +209,28 @@ function PipelineNode({
   );
 }
 
+/** MARL implementation card: path label core.marl.v1, border-zinc-900, subtle glow */
+function MarlCard({
+  icon: Icon,
+  title,
+  items,
+}: {
+  icon: React.ElementType;
+  title: string;
+  items: string[];
+}) {
+  return (
+    <div className="rounded-sm border border-zinc-900 bg-zinc-900/30 p-4 shadow-[0_0_10px_rgba(255,255,255,0.05)]">
+      <p className="font-mono text-[10px] text-zinc-600 uppercase tracking-wider mb-2">core.marl.v1</p>
+      <div className="flex items-center gap-2 text-white font-mono text-xs mb-2">
+        <Icon {...ICON_PROPS} className="text-zinc-500 shrink-0" />
+        {title}
+      </div>
+      <ul className="pl-5 font-mono text-xs text-zinc-500 space-y-0.5">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
