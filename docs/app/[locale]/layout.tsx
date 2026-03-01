@@ -22,31 +22,33 @@ export default function LocaleLayout({
   return (
     <div className="min-h-screen flex flex-col">
       <header className="sticky top-0 z-50 border-b border-[#27272A] bg-black/95 backdrop-blur supports-[backdrop-filter]:bg-black/80">
-        <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
-          <Link href={`/${locale}`} className="font-semibold text-white tracking-tight">
+        <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 h-14 flex items-center">
+          <Link href={`/${locale}`} className="font-semibold text-white tracking-tight shrink-0">
             Umvili
           </Link>
-          <nav className="hidden sm:flex items-center gap-6 text-sm text-muted">
-            <a href="#background" className="hover:text-white transition-colors">
-              {t['nav.background']}
-            </a>
-            <a href="#functionality" className="hover:text-white transition-colors">
-              {t['nav.functionality']}
-            </a>
-            <a href="#showcase" className="hover:text-white transition-colors">
-              {t['nav.showcase']}
-            </a>
-            <a href="#architecture" className="hover:text-white transition-colors">
-              {t['nav.architecture']}
-            </a>
-            <a href="#guide" className="hover:text-white transition-colors">
-              {t['nav.guide']}
-            </a>
-            <a href="#contact" className="hover:text-white transition-colors">
-              {t['nav.contact']}
-            </a>
-          </nav>
-          <LanguageSwitcher />
+          <div className="flex items-center gap-6 sm:gap-8 ml-auto">
+            <nav className="hidden sm:flex items-center gap-6 text-sm text-muted">
+              <a href="#background" className="hover:text-white transition-colors">
+                {t['nav.background']}
+              </a>
+              <a href="#functionality" className="hover:text-white transition-colors">
+                {t['nav.functionality']}
+              </a>
+              <a href="#showcase" className="hover:text-white transition-colors">
+                {t['nav.showcase']}
+              </a>
+              <a href="#architecture" className="hover:text-white transition-colors">
+                {t['nav.architecture']}
+              </a>
+              <a href="#guide" className="hover:text-white transition-colors">
+                {t['nav.guide']}
+              </a>
+              <a href="#contact" className="hover:text-white transition-colors">
+                {t['nav.contact']}
+              </a>
+            </nav>
+            <LanguageSwitcher />
+          </div>
         </div>
       </header>
       <main className="flex-1">{children}</main>

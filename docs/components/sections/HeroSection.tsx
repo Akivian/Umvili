@@ -12,7 +12,7 @@ interface HeroSectionProps {
 export function HeroSection({ title, tagline, cta, command }: HeroSectionProps) {
   return (
     <section className="relative border-b border-[#27272A]">
-      <div className="max-w-5xl mx-auto px-6 py-24 sm:py-32">
+      <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 py-24 sm:py-32">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}

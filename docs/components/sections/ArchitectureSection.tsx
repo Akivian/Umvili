@@ -61,7 +61,7 @@ const ICON_PROPS = { size: 14, strokeWidth: 1 };
 export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) {
   return (
     <section id="architecture" className="border-b border-zinc-800 bg-black">
-      <div className="max-w-6xl mx-auto px-6 py-20">
+      <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 py-20">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           whileInView={{ opacity: 1, y: 0 }}

@@ -11,7 +11,7 @@ interface ContactSectionProps {
 export function ContactSection({ github, docs }: ContactSectionProps) {
   return (
     <footer id="contact" className="border-t border-[#27272A]">
-      <div className="max-w-5xl mx-auto px-6 py-12">
+      <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 py-12">
         <div className="flex flex-wrap items-center justify-between gap-6">
           <p className="text-xs text-muted font-mono">Umvili · MARL Visualization Platform</p>
           <nav className="flex items-center gap-6">

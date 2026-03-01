@@ -41,7 +41,7 @@ interface BentoSectionProps {
 export function BentoSection({ title, subtitle }: BentoSectionProps) {
   return (
     <section id="functionality" className="border-b border-[#27272A]">
-      <div className="max-w-5xl mx-auto px-6 py-20">
+      <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 py-20">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           whileInView={{ opacity: 1, y: 0 }}
