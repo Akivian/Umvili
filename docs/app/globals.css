@@ -8,6 +8,10 @@
   --muted: #a1a1aa;
   --border: #27272a;
   --border-subtle: #18181b;
+  /* Macaron accents: hover glows & 1px accents only */
+  --accent-mint: #a7f3d0;
+  --accent-cream: #fef3c7;
+  --accent-pink: #fbcfe8;
 }
 
 body {
@@ -30,4 +34,18 @@ body {
 /* Monospace for terminal/code */
 .font-mono {
   font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+}
+
+/* Architecture: flowing line animation */
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+.animate-flow-up {
+  animation: flow-dash 2s linear infinite;
+  animation-direction: reverse;
+}
+.animate-flow-down {
+  animation: flow-dash 2s linear infinite;
 }

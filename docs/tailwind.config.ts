@@ -27,6 +27,9 @@ const config: Config = {
       },
       boxShadow: {
         glow: '0 0 20px rgba(255,255,255,0.03)',
+        'glow-mint': '0 0 12px rgba(167,243,208,0.25)',
+        'glow-cream': '0 0 12px rgba(254,243,199,0.25)',
+        'glow-pink': '0 0 12px rgba(251,207,232,0.25)',
       },
     },
   },

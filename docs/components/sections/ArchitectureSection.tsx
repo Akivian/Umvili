@@ -1,28 +1,46 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { TechnicalHeader, HairlineCard } from '../design-system';
+import {
+  Monitor,
+  FlaskConical,
+  Cpu,
+  Users,
+  Map,
+  GitBranch,
+  Network,
+  Settings,
+  Loader2,
+  Database,
+} from 'lucide-react';
+import { TechnicalHeader } from '../design-system';
+import {
+  ArchitectureLayer,
+  FlowLine,
+  ModuleCard,
+} from '../architecture';
 
-interface ArchitectureSectionProps {
+export interface ArchitectureLabels {
   title: string;
   subtitle: string;
-  labels: {
-    config: string;
-    core: string;
-    marl: string;
-    utils: string;
-    env: string;
-    agents: string;
-    simulation: string;
-    visualization: string;
-  };
+  layer1: string;
+  layer2: string;
+  layer3: string;
+  layer4: string;
+  modViz: string;
+  modUi: string;
+  modEngine: string;
+  modAgents: string;
+  modEnv: string;
+  modIql: string;
+  modQmix: string;
+  modDefaults: string;
+  modLoader: string;
+  modSchema: string;
+  dataPipeline: string;
 }
 
-export function ArchitectureSection({
-  title,
-  subtitle,
-  labels,
-}: ArchitectureSectionProps) {
+export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) {
   return (
     <section id="architecture" className="border-b border-[#27272A]">
       <div className="max-w-5xl mx-auto px-6 py-20">
@@ -31,89 +49,132 @@ export function ArchitectureSection({
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-60px' }}
           transition={{ duration: 0.35 }}
-          className="space-y-10"
+          className="space-y-0"
         >
-          <TechnicalHeader title={title} subtitle={subtitle} />
+          <TechnicalHeader
+            title={labels.title}
+            subtitle={labels.subtitle}
+          />
 
-          {/* Blueprint-style flowchart: SVG lines + boxes */}
-          <div className="relative">
-            <svg
-              className="absolute inset-0 w-full h-full pointer-events-none"
-              preserveAspectRatio="none"
+          <div className="mt-12 flex flex-col">
+            {/* Layer 1: Presentation */}
+            <ArchitectureLayer
+              index={1}
+              title={labels.layer1}
+              delay={0}
             >
-              <defs>
-                <marker
-                  id="arrow"
-                  markerWidth="6"
-                  markerHeight="6"
-                  refX="5"
-                  refY="3"
-                  orient="auto"
-                >
-                  <path d="M0,0 L6,3 L0,6 Z" fill="#27272A" />
-                </marker>
-              </defs>
-              {/* Vertical spine */}
-              <line
-                x1="50%"
-                y1="0"
-                x2="50%"
-                y2="100%"
-                stroke="#27272A"
-                strokeWidth="1"
-                markerEnd="url(#arrow)"
-              />
-              {/* Horizontal branches to boxes */}
-              <line x1="50%" y1="20%" x2="20%" y2="20%" stroke="#27272A" strokeWidth="1" />
-              <line x1="50%" y1="45%" x2="20%" y2="45%" stroke="#27272A" strokeWidth="1" />
-              <line x1="50%" y1="70%" x2="20%" y2="70%" stroke="#27272A" strokeWidth="1" />
-              <line x1="50%" y1="85%" x2="80%" y2="85%" stroke="#27272A" strokeWidth="1" />
-            </svg>
-
-            <div className="relative grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* Left column: modules */}
-              <div className="space-y-6">
-                <HairlineCard className="relative">
-                  <span className="text-xs font-mono text-muted uppercase tracking-wider">
-                    {labels.config}
-                  </span>
-                  <p className="mt-2 text-sm text-[#A1A1AA]">
-                    app_config, config_loader, defaults
-                  </p>
-                </HairlineCard>
-                <HairlineCard>
-                  <span className="text-xs font-mono text-muted uppercase tracking-wider">
-                    {labels.core}
-                  </span>
-                  <p className="mt-2 text-sm text-[#A1A1AA]">
-                    {labels.env}, {labels.agents}, {labels.simulation}, reward_calculator
-                  </p>
-                </HairlineCard>
-                <HairlineCard>
-                  <span className="text-xs font-mono text-muted uppercase tracking-wider">
-                    {labels.marl}
-                  </span>
-                  <p className="mt-2 text-sm text-[#A1A1AA]">
-                    IQL, QMIX, networks, replay_buffer
-                  </p>
-                </HairlineCard>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <ModuleCard
+                  label={labels.modViz}
+                  icon={Monitor}
+                  accent="mint"
+                />
+                <ModuleCard
+                  label={labels.modUi}
+                  icon={FlaskConical}
+                  accent="mint"
+                />
               </div>
+            </ArchitectureLayer>
 
-              {/* Right column: visualization */}
-              <div className="md:pt-0 pt-4">
-                <HairlineCard className="md:max-w-sm">
-                  <span className="text-xs font-mono text-muted uppercase tracking-wider">
-                    {labels.utils} → {labels.visualization}
-                  </span>
-                  <p className="mt-2 text-sm text-[#A1A1AA]">
-                    MultiLineChart, QValueHeatmap, NetworkStatePanel, MARLSimulationRenderer
-                  </p>
-                </HairlineCard>
+            <Connector direction="up" />
+
+            {/* Layer 2: Core Simulation */}
+            <ArchitectureLayer
+              index={2}
+              title={labels.layer2}
+              delay={0.1}
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <ModuleCard
+                  label={labels.modEngine}
+                  icon={Cpu}
+                  accent="cream"
+                />
+                <ModuleCard
+                  label={labels.modAgents}
+                  icon={Users}
+                  accent="cream"
+                />
+                <ModuleCard
+                  label={labels.modEnv}
+                  icon={Map}
+                  accent="cream"
+                />
               </div>
-            </div>
+            </ArchitectureLayer>
+
+            <Connector direction="down" />
+
+            {/* Layer 3: MARL */}
+            <ArchitectureLayer
+              index={3}
+              title={labels.layer3}
+              delay={0.2}
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <ModuleCard
+                  label={labels.modIql}
+                  icon={GitBranch}
+                  accent="pink"
+                  formula="Q_i(\\tau^i, u^i)"
+                />
+                <ModuleCard
+                  label={labels.modQmix}
+                  icon={Network}
+                  accent="pink"
+                  formula="Q_{tot}(\\tau, \\mathbf{u})"
+                />
+              </div>
+            </ArchitectureLayer>
+
+            <Connector direction="up" />
+
+            {/* Layer 4: Configuration */}
+            <ArchitectureLayer
+              index={4}
+              title={labels.layer4}
+              delay={0.3}
+            >
+              <div className="space-y-3">
+                <p className="font-mono text-xs text-muted uppercase tracking-wider mb-3">
+                  {labels.dataPipeline}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <ModuleCard
+                    label={labels.modDefaults}
+                    icon={Settings}
+                    accent="mint"
+                  />
+                  <ModuleCard
+                    label={labels.modLoader}
+                    icon={Loader2}
+                    accent="cream"
+                  />
+                  <ModuleCard
+                    label={labels.modSchema}
+                    icon={Database}
+                    accent="pink"
+                  />
+                </div>
+              </div>
+            </ArchitectureLayer>
           </div>
         </motion.div>
       </div>
     </section>
+  );
+}
+
+function Connector({ direction }: { direction: 'up' | 'down' }) {
+  return (
+    <div className="relative h-8 sm:h-10 flex justify-center shrink-0">
+      <FlowLine
+        pathD="M 0.5 0 L 0.5 1"
+        direction={direction}
+        id={`conn-${direction}`}
+        responsive={true}
+      />
+    </div>
   );
 }

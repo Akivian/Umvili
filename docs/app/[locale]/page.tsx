@@ -32,17 +32,24 @@ export default function Home({ params }: { params: { locale: string } }) {
       />
       <ShowcaseSection title={t['showcase.title']} subtitle={t['showcase.subtitle']} />
       <ArchitectureSection
-        title={t['arch.title']}
-        subtitle={t['arch.subtitle']}
         labels={{
-          config: t['arch.config'],
-          core: t['arch.core'],
-          marl: t['arch.marl'],
-          utils: t['arch.utils'],
-          env: t['arch.env'],
-          agents: t['arch.agents'],
-          simulation: t['arch.simulation'],
-          visualization: t['arch.visualization'],
+          title: t['arch.title'],
+          subtitle: t['arch.subtitle'],
+          layer1: t['arch.layer1'],
+          layer2: t['arch.layer2'],
+          layer3: t['arch.layer3'],
+          layer4: t['arch.layer4'],
+          modViz: t['arch.mod.viz'],
+          modUi: t['arch.mod.ui'],
+          modEngine: t['arch.mod.engine'],
+          modAgents: t['arch.mod.agents'],
+          modEnv: t['arch.mod.env'],
+          modIql: t['arch.mod.iql'],
+          modQmix: t['arch.mod.qmix'],
+          modDefaults: t['arch.mod.defaults'],
+          modLoader: t['arch.mod.loader'],
+          modSchema: t['arch.mod.schema'],
+          dataPipeline: t['arch.dataPipeline'],
         }}
       />
       <GuideSection title={t['guide.title']} subtitle={t['guide.subtitle']} />
