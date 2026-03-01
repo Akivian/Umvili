@@ -194,8 +194,6 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
             </LayerBox>
           </motion.div>
 
-          {/* Connectors overlay: 1px zinc-800 lines (no dash animation to avoid flicker) */}
-          <ConnectorsOverlay />
         </motion.div>
       </div>
     </section>
@@ -222,43 +220,3 @@ function PipelineNode({
   );
 }
 
-/** Static 1px zinc-800 connector lines: Config Flow, Data Feedback, MARL Call (dashed) */
-function ConnectorsOverlay() {
-  return (
-    <svg
-      className="absolute inset-0 w-full h-full pointer-events-none overflow-visible hidden lg:block"
-      viewBox="0 0 100 100"
-      preserveAspectRatio="none"
-      aria-hidden
-    >
-      {/* Config Flow: Presentation Config Builder → down-left → Core Config Entry */}
-      <path
-        d="M 72 28 L 72 42 L 18 42 L 18 48"
-        fill="none"
-        stroke="#27272A"
-        strokeWidth="1"
-        vectorEffect="non-scaling-stroke"
-        strokeOpacity="0.9"
-      />
-      {/* Data Feedback: Core Snapshot → up → Presentation Sim Data */}
-      <path
-        d="M 52 72 L 72 38 L 72 32"
-        fill="none"
-        stroke="#27272A"
-        strokeWidth="1"
-        vectorEffect="non-scaling-stroke"
-        strokeOpacity="0.9"
-      />
-      {/* MARL Call: Core MARL ↔ MARL Deep-Dive (dashed) */}
-      <path
-        d="M 38 52 L 42 52 L 42 22 L 38 22"
-        fill="none"
-        stroke="#27272A"
-        strokeWidth="1"
-        vectorEffect="non-scaling-stroke"
-        strokeDasharray="2 2"
-        strokeOpacity="0.8"
-      />
-    </svg>
-  );
-}
