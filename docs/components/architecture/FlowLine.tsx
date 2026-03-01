@@ -14,12 +14,12 @@ interface FlowLineProps {
 
 export function FlowLine({
   pathD,
-  direction,
+  direction: _direction,
   id = 'flow',
   className = '',
   responsive = true,
 }: FlowLineProps) {
-  const isUp = direction === 'up';
+  // 流动动画已暂时关闭（原意：虚线沿连接线移动表示「数据流」向上/向下，避免闪烁）
   return (
     <svg
       className={`absolute inset-0 w-full h-full pointer-events-none overflow-visible ${className} ${responsive ? 'hidden sm:block' : ''}`}
@@ -45,20 +45,6 @@ export function FlowLine({
         whileInView={{ pathLength: 1 }}
         viewport={{ once: true, margin: '-20px' }}
         transition={{ duration: 0.8, ease: 'easeInOut' }}
-      />
-      <motion.path
-        d={pathD}
-        fill="none"
-        stroke="#27272A"
-        strokeWidth="1"
-        strokeOpacity="0.6"
-        strokeDasharray="3 6"
-        strokeLinecap="round"
-        vectorEffect="non-scaling-stroke"
-        initial={{ pathLength: 1 }}
-        whileInView={{ pathLength: 1 }}
-        viewport={{ once: true }}
-        className={isUp ? 'animate-flow-up' : 'animate-flow-down'}
       />
     </svg>
   );
