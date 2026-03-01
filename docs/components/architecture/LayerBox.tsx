@@ -18,7 +18,6 @@ export function LayerBox({
   const Wrapper = layout ? motion.div : 'div';
   const layoutProps = layout
     ? {
-        layout: true as const,
         initial: { opacity: 0, y: 12 },
         whileInView: { opacity: 1, y: 0 },
         viewport: { once: true, margin: '-30px' as const },
@@ -29,9 +28,7 @@ export function LayerBox({
   return (
     <Wrapper
       className={cn(
-        'relative rounded-sm border border-zinc-800 bg-black min-h-[80px]',
-        'before:absolute before:inset-0 before:rounded-sm before:pointer-events-none before:opacity-[0.35]',
-        'before:bg-[length:20px_20px] before:bg-[radial-gradient(circle_at_50%_50%,#27272A_1px,transparent_1px)]',
+        'relative rounded-sm border border-zinc-800 bg-black min-h-[80px] overflow-hidden',
         className
       )}
       {...layoutProps}

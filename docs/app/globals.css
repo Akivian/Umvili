@@ -36,16 +36,3 @@ body {
   font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
 }
 
-/* Architecture: flowing line animation */
-@keyframes flow-dash {
-  to {
-    stroke-dashoffset: -24;
-  }
-}
-.animate-flow-up {
-  animation: flow-dash 2s linear infinite;
-  animation-direction: reverse;
-}
-.animate-flow-down {
-  animation: flow-dash 2s linear infinite;
-}

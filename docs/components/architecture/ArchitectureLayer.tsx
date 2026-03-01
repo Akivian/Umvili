@@ -48,9 +48,7 @@ export function ArchitectureLayer({
         className={cn(
           'relative rounded-sm border border-[#27272A] p-5',
           'bg-[#000]',
-          'min-h-[100px]',
-          'before:absolute before:inset-0 before:rounded-sm before:pointer-events-none before:opacity-[0.35]',
-          'before:bg-[length:20px_20px] before:bg-[radial-gradient(circle_at_50%_50%,#27272A_1px,transparent_1px)]'
+          'min-h-[100px]'
         )}
       >
         <div className="relative z-10">{children}</div>

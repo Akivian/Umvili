@@ -67,14 +67,13 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-60px' }}
           transition={{ duration: 0.35 }}
-          className="relative"
         >
           <TechnicalHeader title={labels.title} subtitle={labels.subtitle} />
 
           {/* Grid: Top (40/60), Middle (full), Bottom (full) */}
-          <div className="mt-10 grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-6">
+          <div className="mt-10 grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-6 overflow-hidden">
             {/* ─── Top Row Left: MARL Deep-Dive (40%) ─── */}
-            <div className="relative">
+            <div className="overflow-hidden rounded-sm min-w-0">
               <LayerBox layout delay={0} className="min-h-[220px]">
                 <TechLabel className="block mb-3">{labels.marlDeepDive}</TechLabel>
                 <div className="space-y-4">
@@ -106,7 +105,7 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
             </div>
 
             {/* ─── Top Row Right: Presentation Layer (60%) ─── */}
-            <div className="relative">
+            <div className="overflow-hidden rounded-sm min-w-0">
               <LayerBox layout delay={0.05} className="min-h-[220px]">
                 <TechLabel className="block mb-3">{labels.presentation}</TechLabel>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -145,12 +144,11 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
 
           {/* ─── Middle Row: Core Pipeline (full width) ─── */}
           <motion.div
-            layout
             initial={{ opacity: 0, y: 12 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: '-30px' }}
             transition={{ type: 'spring', stiffness: 120, damping: 20, delay: 0.1 }}
-            className="mt-6 relative"
+            className="mt-6"
           >
             <LayerBox className="min-h-[100px]">
               <TechLabel className="block mb-3">{labels.coreLayer}</TechLabel>
@@ -175,7 +173,6 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
 
           {/* ─── Bottom Row: Configuration Layer ─── */}
           <motion.div
-            layout
             initial={{ opacity: 0, y: 12 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: '-30px' }}
