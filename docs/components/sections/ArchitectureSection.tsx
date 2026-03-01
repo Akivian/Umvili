@@ -2,179 +2,263 @@
 
 import { motion } from 'framer-motion';
 import {
-  Monitor,
-  FlaskConical,
-  Cpu,
-  Users,
-  Map,
   GitBranch,
   Network,
+  LayoutGrid,
+  Map,
+  LayoutList,
   Settings,
-  Loader2,
+  ArrowRight,
+  Cpu,
+  Boxes,
+  BarChart3,
+  Copy,
   Database,
+  ArrowDown,
 } from 'lucide-react';
 import { TechnicalHeader } from '../design-system';
-import {
-  ArchitectureLayer,
-  FlowLine,
-  ModuleCard,
-} from '../architecture';
+import { LayerBox, TechLabel } from '../architecture';
 
 export interface ArchitectureLabels {
   title: string;
   subtitle: string;
-  layer1: string;
-  layer2: string;
-  layer3: string;
-  layer4: string;
-  modViz: string;
-  modUi: string;
-  modEngine: string;
-  modAgents: string;
-  modEnv: string;
+  marlDeepDive: string;
+  presentation: string;
+  coreLayer: string;
+  configLayer: string;
+  simData: string;
+  configBuilder: string;
+  maps: string;
+  mapsSugar: string;
+  mapsSpice: string;
+  mapsHazard: string;
+  tabs: string;
+  tabsOverview: string;
+  tabsBehavior: string;
+  configEntry: string;
+  envEngine: string;
+  marlSimplified: string;
+  logicController: string;
+  analyticsHub: string;
+  dataSnapshot: string;
+  snapshotLabels: string;
+  defaults: string;
+  loaderCopy: string;
+  schemaAppSimUi: string;
   modIql: string;
   modQmix: string;
-  modDefaults: string;
-  modLoader: string;
-  modSchema: string;
-  dataPipeline: string;
+  iqlQNet: string;
+  iqlPolicy: string;
+  iqlPER: string;
+  iqlTarget: string;
+  qmixMixing: string;
+  qmixHyper: string;
+  qmixAgentNets: string;
 }
+
+const ICON_PROPS = { size: 14, strokeWidth: 1 };
 
 export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) {
   return (
-    <section id="architecture" className="border-b border-[#27272A]">
-      <div className="max-w-5xl mx-auto px-6 py-20">
+    <section id="architecture" className="border-b border-zinc-800 bg-black">
+      <div className="max-w-6xl mx-auto px-6 py-20">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-60px' }}
           transition={{ duration: 0.35 }}
-          className="space-y-0"
+          className="relative"
         >
-          <TechnicalHeader
-            title={labels.title}
-            subtitle={labels.subtitle}
-          />
+          <TechnicalHeader title={labels.title} subtitle={labels.subtitle} />
 
-          <div className="mt-12 flex flex-col">
-            {/* Layer 1: Presentation */}
-            <ArchitectureLayer
-              index={1}
-              title={labels.layer1}
-              delay={0}
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <ModuleCard
-                  label={labels.modViz}
-                  icon={Monitor}
-                  accent="mint"
-                />
-                <ModuleCard
-                  label={labels.modUi}
-                  icon={FlaskConical}
-                  accent="mint"
-                />
-              </div>
-            </ArchitectureLayer>
-
-            <Connector direction="up" />
-
-            {/* Layer 2: Core Simulation */}
-            <ArchitectureLayer
-              index={2}
-              title={labels.layer2}
-              delay={0.1}
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <ModuleCard
-                  label={labels.modEngine}
-                  icon={Cpu}
-                  accent="cream"
-                />
-                <ModuleCard
-                  label={labels.modAgents}
-                  icon={Users}
-                  accent="cream"
-                />
-                <ModuleCard
-                  label={labels.modEnv}
-                  icon={Map}
-                  accent="cream"
-                />
-              </div>
-            </ArchitectureLayer>
-
-            <Connector direction="down" />
-
-            {/* Layer 3: MARL */}
-            <ArchitectureLayer
-              index={3}
-              title={labels.layer3}
-              delay={0.2}
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <ModuleCard
-                  label={labels.modIql}
-                  icon={GitBranch}
-                  accent="pink"
-                  formula="Q_i(\\tau^i, u^i)"
-                />
-                <ModuleCard
-                  label={labels.modQmix}
-                  icon={Network}
-                  accent="pink"
-                  formula="Q_{tot}(\\tau, \\mathbf{u})"
-                />
-              </div>
-            </ArchitectureLayer>
-
-            <Connector direction="up" />
-
-            {/* Layer 4: Configuration */}
-            <ArchitectureLayer
-              index={4}
-              title={labels.layer4}
-              delay={0.3}
-            >
-              <div className="space-y-3">
-                <p className="font-mono text-xs text-muted uppercase tracking-wider mb-3">
-                  {labels.dataPipeline}
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <ModuleCard
-                    label={labels.modDefaults}
-                    icon={Settings}
-                    accent="mint"
-                  />
-                  <ModuleCard
-                    label={labels.modLoader}
-                    icon={Loader2}
-                    accent="cream"
-                  />
-                  <ModuleCard
-                    label={labels.modSchema}
-                    icon={Database}
-                    accent="pink"
-                  />
+          {/* Grid: Top (40/60), Middle (full), Bottom (full) */}
+          <div className="mt-10 grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-6">
+            {/* ─── Top Row Left: MARL Deep-Dive (40%) ─── */}
+            <div className="relative">
+              <LayerBox layout delay={0} className="min-h-[220px]">
+                <TechLabel className="block mb-3">{labels.marlDeepDive}</TechLabel>
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 text-white font-mono text-xs">
+                      <GitBranch {...ICON_PROPS} className="text-zinc-500 shrink-0" />
+                      {labels.modIql}
+                    </div>
+                    <ul className="pl-5 font-mono text-xs text-zinc-500 space-y-0.5">
+                      <li>{labels.iqlQNet}</li>
+                      <li>{labels.iqlPolicy}</li>
+                      <li>{labels.iqlPER}</li>
+                      <li>{labels.iqlTarget}</li>
+                    </ul>
+                  </div>
+                  <div className="border-t border-zinc-800 pt-3 space-y-1.5">
+                    <div className="flex items-center gap-2 text-white font-mono text-xs">
+                      <Network {...ICON_PROPS} className="text-zinc-500 shrink-0" />
+                      {labels.modQmix}
+                    </div>
+                    <ul className="pl-5 font-mono text-xs text-zinc-500 space-y-0.5">
+                      <li>{labels.qmixMixing}</li>
+                      <li>{labels.qmixHyper}</li>
+                      <li>{labels.qmixAgentNets}</li>
+                    </ul>
+                  </div>
                 </div>
-              </div>
-            </ArchitectureLayer>
+              </LayerBox>
+            </div>
+
+            {/* ─── Top Row Right: Presentation Layer (60%) ─── */}
+            <div className="relative">
+              <LayerBox layout delay={0.05} className="min-h-[220px]">
+                <TechLabel className="block mb-3">{labels.presentation}</TechLabel>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <TechLabel className="flex items-center gap-1.5 mb-1">
+                      <ArrowDown {...ICON_PROPS} /> {labels.simData} (Input)
+                    </TechLabel>
+                    <p className="font-mono text-xs text-zinc-500">State, Metrics</p>
+                  </div>
+                  <div>
+                    <TechLabel className="flex items-center gap-1.5 mb-1">
+                      <Map {...ICON_PROPS} /> {labels.maps}
+                    </TechLabel>
+                    <p className="font-mono text-xs text-zinc-500">
+                      {labels.mapsSugar}, {labels.mapsSpice}, {labels.mapsHazard}
+                    </p>
+                  </div>
+                  <div>
+                    <TechLabel className="flex items-center gap-1.5 mb-1">
+                      <LayoutList {...ICON_PROPS} /> {labels.tabs}
+                    </TechLabel>
+                    <p className="font-mono text-xs text-zinc-500">
+                      {labels.tabsOverview}, {labels.tabsBehavior}, …
+                    </p>
+                  </div>
+                  <div>
+                    <TechLabel className="flex items-center gap-1.5 mb-1">
+                      <Settings {...ICON_PROPS} /> {labels.configBuilder} (Output)
+                    </TechLabel>
+                    <p className="font-mono text-xs text-zinc-500">Config → Core</p>
+                  </div>
+                </div>
+              </LayerBox>
+            </div>
           </div>
+
+          {/* ─── Middle Row: Core Pipeline (full width) ─── */}
+          <motion.div
+            layout
+            initial={{ opacity: 0, y: 12 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: '-30px' }}
+            transition={{ type: 'spring', stiffness: 120, damping: 20, delay: 0.1 }}
+            className="mt-6 relative"
+          >
+            <LayerBox className="min-h-[100px]">
+              <TechLabel className="block mb-3">{labels.coreLayer}</TechLabel>
+              <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+                <PipelineNode icon={Settings} label={labels.configEntry} />
+                <ArrowRight {...ICON_PROPS} className="text-zinc-600 shrink-0" />
+                <PipelineNode icon={Cpu} label={labels.envEngine} />
+                <ArrowRight {...ICON_PROPS} className="text-zinc-600 shrink-0" />
+                <PipelineNode icon={Boxes} label={labels.marlSimplified} id="core-marl-node" />
+                <ArrowRight {...ICON_PROPS} className="text-zinc-600 shrink-0" />
+                <PipelineNode icon={LayoutGrid} label={labels.logicController} />
+                <ArrowRight {...ICON_PROPS} className="text-zinc-600 shrink-0" />
+                <PipelineNode icon={BarChart3} label={labels.analyticsHub} />
+              </div>
+              <div className="mt-4 pt-3 border-t border-zinc-800 flex items-center gap-2">
+                <ArrowDown {...ICON_PROPS} className="text-zinc-500 shrink-0" />
+                <TechLabel>{labels.dataSnapshot}</TechLabel>
+                <span className="font-mono text-xs text-zinc-600">[{labels.snapshotLabels}]</span>
+              </div>
+            </LayerBox>
+          </motion.div>
+
+          {/* ─── Bottom Row: Configuration Layer ─── */}
+          <motion.div
+            layout
+            initial={{ opacity: 0, y: 12 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: '-30px' }}
+            transition={{ type: 'spring', stiffness: 120, damping: 20, delay: 0.15 }}
+            className="mt-6"
+          >
+            <LayerBox>
+              <TechLabel className="block mb-3">{labels.configLayer}</TechLabel>
+              <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+                <PipelineNode icon={Database} label={labels.defaults} />
+                <ArrowRight {...ICON_PROPS} className="text-zinc-600 shrink-0" />
+                <PipelineNode icon={Copy} label={labels.loaderCopy} />
+                <ArrowRight {...ICON_PROPS} className="text-zinc-600 shrink-0" />
+                <PipelineNode icon={Database} label={labels.schemaAppSimUi} />
+              </div>
+            </LayerBox>
+          </motion.div>
+
+          {/* Connectors overlay: 1px zinc-800 lines (no dash animation to avoid flicker) */}
+          <ConnectorsOverlay />
         </motion.div>
       </div>
     </section>
   );
 }
 
-function Connector({ direction }: { direction: 'up' | 'down' }) {
+function PipelineNode({
+  icon: Icon,
+  label,
+  id,
+}: {
+  icon: React.ElementType;
+  label: string;
+  id?: string;
+}) {
   return (
-    <div className="relative h-8 sm:h-10 flex justify-center shrink-0">
-      <FlowLine
-        pathD="M 0.5 0 L 0.5 1"
-        direction={direction}
-        id={`conn-${direction}`}
-        responsive={true}
+    <span
+      id={id}
+      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-sm border border-zinc-800 bg-zinc-900/30 font-mono text-xs text-zinc-300"
+    >
+      <Icon {...ICON_PROPS} className="text-zinc-500 shrink-0" />
+      {label}
+    </span>
+  );
+}
+
+/** Static 1px zinc-800 connector lines: Config Flow, Data Feedback, MARL Call (dashed) */
+function ConnectorsOverlay() {
+  return (
+    <svg
+      className="absolute inset-0 w-full h-full pointer-events-none overflow-visible hidden lg:block"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+      aria-hidden
+    >
+      {/* Config Flow: Presentation Config Builder → down-left → Core Config Entry */}
+      <path
+        d="M 72 28 L 72 42 L 18 42 L 18 48"
+        fill="none"
+        stroke="#27272A"
+        strokeWidth="1"
+        vectorEffect="non-scaling-stroke"
+        strokeOpacity="0.9"
       />
-    </div>
+      {/* Data Feedback: Core Snapshot → up → Presentation Sim Data */}
+      <path
+        d="M 52 72 L 72 38 L 72 32"
+        fill="none"
+        stroke="#27272A"
+        strokeWidth="1"
+        vectorEffect="non-scaling-stroke"
+        strokeOpacity="0.9"
+      />
+      {/* MARL Call: Core MARL ↔ MARL Deep-Dive (dashed) */}
+      <path
+        d="M 38 52 L 42 52 L 42 22 L 38 22"
+        fill="none"
+        stroke="#27272A"
+        strokeWidth="1"
+        vectorEffect="non-scaling-stroke"
+        strokeDasharray="2 2"
+        strokeOpacity="0.8"
+      />
+    </svg>
   );
 }
