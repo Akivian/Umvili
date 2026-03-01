@@ -75,3 +75,5 @@ Thumbs.db
 config/local.json
 *.pyc
 
+# Paper / thesis docs (do not publish to open repo)
+docs/zh/paper/

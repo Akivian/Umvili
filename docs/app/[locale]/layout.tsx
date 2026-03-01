@@ -27,22 +27,22 @@ export default function LocaleLayout({
             Umvili
           </Link>
           <nav className="hidden sm:flex items-center gap-6 text-sm text-muted">
-            <a href={`/${locale}#background`} className="hover:text-white transition-colors">
+            <a href="#background" className="hover:text-white transition-colors">
               {t['nav.background']}
             </a>
-            <a href={`/${locale}#functionality`} className="hover:text-white transition-colors">
+            <a href="#functionality" className="hover:text-white transition-colors">
               {t['nav.functionality']}
             </a>
-            <a href={`/${locale}#showcase`} className="hover:text-white transition-colors">
+            <a href="#showcase" className="hover:text-white transition-colors">
               {t['nav.showcase']}
             </a>
-            <a href={`/${locale}#architecture`} className="hover:text-white transition-colors">
+            <a href="#architecture" className="hover:text-white transition-colors">
               {t['nav.architecture']}
             </a>
-            <a href={`/${locale}#guide`} className="hover:text-white transition-colors">
+            <a href="#guide" className="hover:text-white transition-colors">
               {t['nav.guide']}
             </a>
-            <a href={`/${locale}#contact`} className="hover:text-white transition-colors">
+            <a href="#contact" className="hover:text-white transition-colors">
               {t['nav.contact']}
             </a>
           </nav>
