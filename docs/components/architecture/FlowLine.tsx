@@ -39,7 +39,8 @@ export function FlowLine({
         fill="none"
         stroke="#27272A"
         strokeWidth="1"
-        strokeOpacity="0.4"
+        strokeOpacity="0.5"
+        vectorEffect="non-scaling-stroke"
         initial={{ pathLength: 0 }}
         whileInView={{ pathLength: 1 }}
         viewport={{ once: true, margin: '-20px' }}
@@ -50,12 +51,13 @@ export function FlowLine({
         fill="none"
         stroke="#27272A"
         strokeWidth="1"
-        strokeDasharray="4 8"
+        strokeOpacity="0.6"
+        strokeDasharray="3 6"
         strokeLinecap="round"
-        initial={{ pathLength: 0 }}
+        vectorEffect="non-scaling-stroke"
+        initial={{ pathLength: 1 }}
         whileInView={{ pathLength: 1 }}
         viewport={{ once: true }}
-        transition={{ duration: 0.8 }}
         className={isUp ? 'animate-flow-up' : 'animate-flow-down'}
       />
     </svg>
