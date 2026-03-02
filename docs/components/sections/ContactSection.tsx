@@ -21,7 +21,7 @@ export function ContactSection({ github, docs }: ContactSectionProps) {
               rel="noopener noreferrer"
               className="flex items-center gap-2 text-sm text-muted hover:text-white transition-colors"
             >
-              <Github className="w-4 h-4 stroke-[1.5px]" />
+              <Github className="w-4 h-4" strokeWidth={1.2} />
               {github}
             </Link>
             <Link
@@ -30,7 +30,7 @@ export function ContactSection({ github, docs }: ContactSectionProps) {
               rel="noopener noreferrer"
               className="flex items-center gap-2 text-sm text-muted hover:text-white transition-colors"
             >
-              <FileText className="w-4 h-4 stroke-[1.5px]" />
+              <FileText className="w-4 h-4" strokeWidth={1.2} />
               {docs}
             </Link>
           </nav>

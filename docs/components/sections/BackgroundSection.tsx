@@ -26,15 +26,15 @@ export function BackgroundSection({
           transition={{ duration: 0.35 }}
           className="grid grid-cols-1 md:grid-cols-2 gap-8"
         >
-          <HairlineCard as="article">
+          <HairlineCard as="article" accent="mint">
             <TechnicalHeader title={originTitle} />
-            <div className="mt-4 h-px bg-[#27272A]" />
-            <p className="mt-4 text-sm text-[#A1A1AA] leading-relaxed">{originText}</p>
+            <div className="mt-4 h-px bg-zinc-800/50" />
+            <p className="mt-4 text-sm text-zinc-400 leading-relaxed">{originText}</p>
           </HairlineCard>
-          <HairlineCard as="article">
+          <HairlineCard as="article" accent="cream">
             <TechnicalHeader title={problemTitle} />
-            <div className="mt-4 h-px bg-[#27272A]" />
-            <p className="mt-4 text-sm text-[#A1A1AA] leading-relaxed">{problemText}</p>
+            <div className="mt-4 h-px bg-zinc-800/50" />
+            <p className="mt-4 text-sm text-zinc-400 leading-relaxed">{problemText}</p>
           </HairlineCard>
         </motion.div>
       </div>

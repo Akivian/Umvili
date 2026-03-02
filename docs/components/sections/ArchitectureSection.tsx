@@ -58,7 +58,7 @@ export interface ArchitectureLabels {
   qmixAgentNets: string;
 }
 
-const ICON_PROPS = { size: 14, strokeWidth: 1 };
+const ICON_PROPS = { size: 14, strokeWidth: 1.2 };
 
 export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) {
   return (
@@ -125,7 +125,7 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
                     items={[labels.iqlQNet, labels.iqlPolicy, labels.iqlPER, labels.iqlTarget]}
                   />
                   <div className="hidden sm:flex items-center justify-center pt-8 text-zinc-600" aria-hidden>
-                    <GitFork size={18} strokeWidth={1} />
+                    <GitFork size={18} strokeWidth={1.2} />
                   </div>
                   <MarlCard
                     icon={Network}

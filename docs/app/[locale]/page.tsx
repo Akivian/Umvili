@@ -15,6 +15,7 @@ export default function Home({ params }: { params: { locale: string } }) {
   return (
     <>
       <HeroSection
+        badge={t['hero.badge']}
         title={t['hero.title']}
         tagline={t['hero.tagline']}
         cta={t['hero.cta']}

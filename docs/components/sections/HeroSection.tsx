@@ -3,13 +3,14 @@
 import { motion } from 'framer-motion';
 
 interface HeroSectionProps {
+  badge: string;
   title: string;
   tagline: string;
   cta: string;
   command: string;
 }
 
-export function HeroSection({ title, tagline, cta, command }: HeroSectionProps) {
+export function HeroSection({ badge, title, tagline, cta, command }: HeroSectionProps) {
   return (
     <section className="relative border-b border-[#27272A]">
       <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 py-24 sm:py-32">
@@ -19,6 +20,9 @@ export function HeroSection({ title, tagline, cta, command }: HeroSectionProps) 
           transition={{ duration: 0.4 }}
           className="space-y-6"
         >
+          <span className="inline-block font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-2">
+            {badge}
+          </span>
           <h1 className="text-4xl sm:text-5xl font-semibold tracking-tighter text-white">
             {title}
           </h1>
