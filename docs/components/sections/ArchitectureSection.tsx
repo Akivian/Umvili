@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
+import { useMousePosition } from '../../common/useMousePosition';
+import { useReducedMotion } from '../../common/useReducedMotion';
 import {
   GitBranch,
   Network,
@@ -18,7 +20,7 @@ import {
   Database,
   ArrowDown,
 } from 'lucide-react';
-import { Divider, TechnicalHeader } from '../design-system';
+import { Divider, SectionEntrance, TechnicalHeader } from '../design-system';
 import { CarrierContainer, FlowPaths, TechLabel } from '../architecture';
 
 export interface ArchitectureLabels {
@@ -69,22 +71,11 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
     <section id="architecture" className="bg-black relative">
       <FlowPaths />
       <div className="relative w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 py-20">
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-60px' }}
-          transition={{ duration: 0.35 }}
-        >
+        <SectionEntrance>
           <TechnicalHeader title={labels.title} subtitle={labels.subtitle} />
 
           {/* Level 1: PRESENTATION LAYER — L-brackets, LAYER_ID: 0x01 */}
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-30px' }}
-            transition={{ type: 'spring', stiffness: 120, damping: 20, delay: 0 }}
-            className="mt-10"
-          >
+          <div className="mt-10">
             <CarrierContainer hexId="LAYER_ID: 0x01" className="min-h-[88px]">
               <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 block mb-3">
                 {labels.presentation}
@@ -112,16 +103,10 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
                 />
               </div>
             </CarrierContainer>
-          </motion.div>
+          </div>
 
           {/* Level 2: CORE LAYER — largest, CORE_V2.0, pipeline + MARL nested */}
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-30px' }}
-            transition={{ type: 'spring', stiffness: 120, damping: 20, delay: 0.05 }}
-            className="mt-6"
-          >
+          <div className="mt-6">
             <CarrierContainer hexId="CORE_V2.0" className="min-h-[280px]">
               <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 block mb-4">
                 {labels.coreLayer}
@@ -189,16 +174,10 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
                 <span className="font-mono text-[10px] text-zinc-500">[{labels.snapshotLabels}]</span>
               </div>
             </CarrierContainer>
-          </motion.div>
+          </div>
 
           {/* Level 3: CONFIGURATION LAYER */}
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-30px' }}
-            transition={{ type: 'spring', stiffness: 120, damping: 20, delay: 0.1 }}
-            className="mt-6"
-          >
+          <div className="mt-6">
             <CarrierContainer hexId="LAYER_ID: 0x03">
               <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 block mb-3">
                 {labels.configLayer}
@@ -211,8 +190,8 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
                 <PipelineNode icon={Database} label={labels.schemaAppSimUi} />
               </div>
             </CarrierContainer>
-          </motion.div>
-        </motion.div>
+          </div>
+        </SectionEntrance>
       </div>
       <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10">
         <Divider />
@@ -276,7 +255,7 @@ function MarlKernelNode({
       onMouseLeave={() => onHoverChange(false)}
     >
       <span
-        className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"
+        className="w-1.5 h-1.5 rounded-full bg-emerald-500 led-pulse"
         aria-hidden
       />
       <span className="flex items-center gap-1.5">
@@ -287,7 +266,7 @@ function MarlKernelNode({
   );
 }
 
-/** MARL implementation card: bg-zinc-950, dashed border, γ=0.99 meta */
+/** MARL implementation card: magnetic pull toward mouse on hover (max 3px) */
 function MarlCard({
   icon: Icon,
   title,
@@ -299,8 +278,41 @@ function MarlCard({
   items: string[];
   meta?: string;
 }) {
+  const cardRef = React.useRef<HTMLDivElement>(null);
+  const mousePos = useMousePosition();
+  const [pull, setPull] = useState({ x: 0, y: 0 });
+  const [hovered, setHovered] = useState(false);
+  const reduced = useReducedMotion();
+
+  React.useEffect(() => {
+    if (reduced || !hovered) {
+      setPull({ x: 0, y: 0 });
+      return;
+    }
+    const el = cardRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const dx = mousePos.x - centerX;
+    const dy = mousePos.y - centerY;
+    const mag = Math.sqrt(dx * dx + dy * dy) || 1;
+    const scale = Math.min(1, 3 / mag);
+    setPull({ x: dx * scale, y: dy * scale });
+  }, [mousePos, hovered, reduced]);
+
   return (
-    <div className="rounded-sm border border-dashed border-zinc-800 bg-zinc-950 p-4 shadow-[inset_0_1px_2px_rgba(0,0,0,0.2)]">
+    <motion.div
+      ref={cardRef}
+      className="rounded-sm border border-dashed border-zinc-800 bg-zinc-950 p-4 shadow-[inset_0_1px_2px_rgba(0,0,0,0.2)] transform-gpu"
+      animate={reduced ? {} : { x: pull.x, y: pull.y }}
+      transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => {
+        setHovered(false);
+        setPull({ x: 0, y: 0 });
+      }}
+    >
       <p className="font-mono text-[10px] text-zinc-600 uppercase tracking-wider mb-1">core.marl.v1</p>
       {meta && (
         <p className="font-mono text-[10px] text-zinc-500 mb-2">{meta}</p>
@@ -314,6 +326,6 @@ function MarlCard({
           <li key={item}>{item}</li>
         ))}
       </ul>
-    </div>
+    </motion.div>
   );
 }

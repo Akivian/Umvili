@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Divider, HairlineCard, TechnicalHeader } from '../design-system';
+import { Divider, HairlineCard, SectionEntrance, TechnicalHeader } from '../design-system';
 
 const steps = [
   { id: 1, label: 'Clone & install', code: 'git clone https://github.com/Akivian/Umvili.git && cd Umvili && pip install -r requirements.txt' },
@@ -18,13 +18,7 @@ export function GuideSection({ title, subtitle }: GuideSectionProps) {
   return (
     <section id="guide">
       <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 py-20">
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-60px' }}
-          transition={{ duration: 0.35 }}
-          className="space-y-8"
-        >
+        <SectionEntrance className="space-y-8">
           <TechnicalHeader title={title} subtitle={subtitle} />
           <div className="relative grid grid-cols-1 gap-6 max-w-2xl">
             {/* Vertical progress line connecting steps */}
@@ -57,7 +51,7 @@ export function GuideSection({ title, subtitle }: GuideSectionProps) {
               </motion.div>
             ))}
           </div>
-        </motion.div>
+        </SectionEntrance>
       </div>
       <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10">
         <Divider />

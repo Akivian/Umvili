@@ -56,17 +56,7 @@ body {
   font-feature-settings: 'rlig' 1, 'calt' 1;
 }
 
-/* Dot grid overlay: higher contrast, fixed */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.08) 0.5px, transparent 0.5px);
-  background-size: 24px 24px;
-  background-attachment: fixed;
-  z-index: 0;
-}
+/* Dot grid: rendered by ParallaxDotGrid component (client) for mouse parallax */
 
 /* Hairline borders */
 .hairline {
@@ -109,9 +99,25 @@ h2 {
   to { stroke-dashoffset: 24; }
 }
 .flow-photon-down {
-  animation: flowPhotonDown 1.8s linear infinite;
+  animation: flowPhotonDown 3s cubic-bezier(0.37, 0, 0.63, 1) infinite;
 }
 .flow-photon-up {
-  animation: flowPhotonUp 1.8s linear infinite;
+  animation: flowPhotonUp 3s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+  animation-delay: 0.5s;
+}
+.led-pulse {
+  animation: ledPulse 3s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+}
+@keyframes ledPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-photon-down,
+  .flow-photon-up,
+  .led-pulse {
+    animation: none;
+  }
 }
 

@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { cn } from '../../common/utils';
+import { useReducedMotion } from '../../common/useReducedMotion';
 
 interface HairlineCardProps {
   children: React.ReactNode;
@@ -21,6 +22,7 @@ export function HairlineCard({
   as: Component = 'div',
 }: HairlineCardProps) {
   const Motion = MotionComponents[Component];
+  const reduced = useReducedMotion();
 
   return (
     <Motion
@@ -32,13 +34,22 @@ export function HairlineCard({
         'transition-[border-color,box-shadow] duration-300 ease-out',
         'hover:border-[rgba(161,161,170,0.4)]',
         'hover:shadow-[inset_0_1px_1px_0_rgba(255,255,255,0.1),0_0_20px_0_rgba(255,255,255,0.05)]',
+        'transform-gpu',
         className
       )}
-      whileHover={{
-        y: -8,
-        scale: 1.01,
-        transition: { type: 'spring', stiffness: 300, damping: 20 },
-      }}
+      whileHover={
+        reduced
+          ? undefined
+          : {
+              y: -8,
+              scale: 1.02,
+              backgroundColor: 'rgba(24, 24, 27, 0.8)',
+              boxShadow:
+                'inset 0 1px 1px 0 rgba(255,255,255,0.1), 0 0 20px 0 rgba(255,255,255,0.1)',
+              transition: { type: 'spring', stiffness: 300, damping: 20 },
+            }
+      }
+      style={{ willChange: reduced ? 'auto' : 'transform' }}
     >
       {children}
     </Motion>

@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { locales, type Locale } from '../../common/i18n';
+import { AnimatedPageContent } from '../../components/AnimatedPageContent';
 import { Divider } from '../../components/design-system';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import Link from 'next/link';
@@ -53,7 +54,9 @@ export default function LocaleLayout({
         </div>
         <Divider />
       </header>
-      <main className="flex-1">{children}</main>
+      <main className="flex-1">
+        <AnimatedPageContent locale={locale}>{children}</AnimatedPageContent>
+      </main>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
+import { ParallaxDotGrid } from '../components/ParallaxDotGrid';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -25,6 +26,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="antialiased scroll-smooth">
       <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans text-foreground min-h-screen relative`}>
+        <ParallaxDotGrid />
         {children}
       </body>
     </html>

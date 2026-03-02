@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Divider, InteractiveTerminal, TechnicalHeader } from '../design-system';
+import { Divider, InteractiveTerminal, SectionEntrance, TechnicalHeader } from '../design-system';
 
 interface ShowcaseSectionProps {
   title: string;
@@ -13,13 +13,7 @@ export function ShowcaseSection({ title, subtitle }: ShowcaseSectionProps) {
   return (
     <section id="showcase">
       <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 py-20">
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-60px' }}
-          transition={{ duration: 0.35 }}
-          className="space-y-6"
-        >
+        <SectionEntrance className="space-y-6">
           <TechnicalHeader title={title} subtitle={subtitle} />
           <InteractiveTerminal>
             <pre className="m-0 overflow-x-auto">
@@ -40,7 +34,7 @@ export function ShowcaseSection({ title, subtitle }: ShowcaseSectionProps) {
               </code>
             </pre>
           </InteractiveTerminal>
-        </motion.div>
+        </SectionEntrance>
       </div>
       <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10">
         <Divider />

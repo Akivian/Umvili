@@ -63,8 +63,9 @@ export function ModuleCard({
         if (formula) loadFormula();
       }}
       onMouseLeave={() => setShowTooltip(false)}
-      whileHover={{ scale: 1.01 }}
+      whileHover={{ scale: 1.02, backgroundColor: 'rgba(24, 24, 27, 0.8)' }}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+      className="transform-gpu"
     >
       <div className="p-4 flex items-start gap-3">
         <span className="text-[#27272A] shrink-0" aria-hidden>

@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { Divider, InteractiveTerminal } from '../design-system';
+import { useReducedMotion } from '../../common/useReducedMotion';
 
 interface HeroSectionProps {
   badge: string;
@@ -11,15 +12,20 @@ interface HeroSectionProps {
   command: string;
 }
 
+const SPRING = { type: 'spring' as const, stiffness: 80, damping: 15, mass: 1 };
+
 export function HeroSection({ badge, title, tagline, cta, command }: HeroSectionProps) {
+  const reduced = useReducedMotion();
+
   return (
     <section className="relative">
       <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 py-24 sm:py-32">
         <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
+          initial={reduced ? {} : { opacity: 0, y: 30, filter: 'blur(4px)' }}
+          animate={reduced ? {} : { opacity: 1, y: 0, filter: 'blur(0px)' }}
+          transition={reduced ? { duration: 0 } : SPRING}
           className="space-y-6"
+          style={{ willChange: reduced ? 'auto' : 'transform, opacity, filter' }}
         >
           <span className="inline-flex items-center px-2 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-400 bg-zinc-900 border border-zinc-800 rounded-sm mb-3">
             {badge}
