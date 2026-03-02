@@ -26,12 +26,12 @@ export function BackgroundSection({
           transition={{ duration: 0.35 }}
           className="grid grid-cols-1 md:grid-cols-2 gap-8"
         >
-          <HairlineCard as="article" accent="mint">
+          <HairlineCard as="article">
             <TechnicalHeader title={originTitle} />
             <div className="mt-4 h-px bg-zinc-800/50" />
             <p className="mt-4 text-sm text-zinc-400 leading-relaxed">{originText}</p>
           </HairlineCard>
-          <HairlineCard as="article" accent="cream">
+          <HairlineCard as="article">
             <TechnicalHeader title={problemTitle} />
             <div className="mt-4 h-px bg-zinc-800/50" />
             <p className="mt-4 text-sm text-zinc-400 leading-relaxed">{problemText}</p>

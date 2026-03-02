@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --background: #000000;
-  --background-center: #0a0a0b;
+  --background: #030303;
+  --background-flare: #111111;
   --foreground: #ffffff;
   --muted: #a1a1aa;
   --border: #27272a;
@@ -49,21 +49,22 @@ html {
 }
 
 body {
-  background: radial-gradient(ellipse at center, var(--background-center) 0%, var(--background) 100%);
+  background: var(--background);
+  background-image: radial-gradient(circle at 50% -20%, var(--background-flare) 0%, #000000 80%);
   background-attachment: fixed;
   color: var(--foreground);
   font-feature-settings: 'rlig' 1, 'calt' 1;
 }
 
-/* Dot grid overlay (24px spacing, 0.5px dots) */
+/* Dot grid overlay: higher contrast, fixed */
 body::before {
   content: '';
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background-image: radial-gradient(circle, #27272a 0.5px, transparent 0.5px);
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.08) 0.5px, transparent 0.5px);
   background-size: 24px 24px;
-  opacity: 0.4;
+  background-attachment: fixed;
   z-index: 0;
 }
 
@@ -83,8 +84,12 @@ body::before {
   font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
 }
 
-/* H1/H2: tighter tracking */
-h1, h2 {
+/* H1: designed letter-spacing */
+h1 {
+  letter-spacing: -0.05em;
+}
+
+h2 {
   letter-spacing: -0.025em;
 }
 

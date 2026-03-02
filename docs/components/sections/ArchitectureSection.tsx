@@ -81,7 +81,7 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
             className="mt-10"
           >
             <LayerBox className="min-h-[88px]">
-              <TechLabel className="block mb-3">{labels.presentation}</TechLabel>
+              <TechLabel tag className="block mb-3">{labels.presentation}</TechLabel>
               <div className="flex flex-wrap items-center gap-6 sm:gap-8">
                 <PresentationModule icon={ArrowDown} label={`${labels.simData} (Input)`} sub="State, Metrics" />
                 <PresentationModule icon={Map} label={labels.maps} sub={`${labels.mapsSugar}, ${labels.mapsSpice}, ${labels.mapsHazard}`} />
@@ -99,8 +99,8 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
             transition={{ type: 'spring', stiffness: 120, damping: 20, delay: 0.05 }}
             className="mt-6"
           >
-            <div className="rounded-sm border border-zinc-800 bg-zinc-950/50 p-6 overflow-hidden">
-              <TechLabel className="block mb-4">{labels.coreLayer}</TechLabel>
+            <div className="relative z-10 rounded-sm p-6 overflow-hidden bg-[rgba(9,9,11,0.6)] backdrop-blur-xl border border-[rgba(39,39,42,0.8)] shadow-[inset_0_1px_1px_0_rgba(255,255,255,0.1)]">
+              <TechLabel tag className="block mb-4">{labels.coreLayer}</TechLabel>
 
               {/* Pipeline: Config Entry → Env Engine → MARL Master → Logic Controller → Analytics Hub */}
               <div className="flex flex-wrap items-center gap-2 sm:gap-4">
@@ -117,7 +117,7 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
 
               {/* Level 3 (nested in Core): ALGORITHM IMPLEMENTATIONS — MARL portal sub-grid */}
               <div className="mt-6 pt-5 border-t border-zinc-800">
-                <TechLabel className="block mb-3">{labels.algorithmImpl}</TechLabel>
+                <TechLabel tag className="block mb-3">{labels.algorithmImpl}</TechLabel>
                 <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-4 items-start">
                   <MarlCard
                     icon={GitBranch}
@@ -139,7 +139,7 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
               <div className="mt-6 pt-4 border-t border-zinc-800 flex items-center gap-2">
                 <ArrowDown {...ICON_PROPS} className="text-zinc-500 shrink-0" />
                 <TechLabel>{labels.dataSnapshot}</TechLabel>
-                <span className="font-mono text-xs text-zinc-600">[{labels.snapshotLabels}]</span>
+                <span className="font-mono text-xs text-zinc-500">[{labels.snapshotLabels}]</span>
               </div>
             </div>
           </motion.div>
@@ -153,7 +153,7 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
             className="mt-6"
           >
             <LayerBox>
-              <TechLabel className="block mb-3">{labels.configLayer}</TechLabel>
+              <TechLabel tag className="block mb-3">{labels.configLayer}</TechLabel>
               <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                 <PipelineNode icon={Database} label={labels.defaults} />
                 <ArrowRight {...ICON_PROPS} className="text-zinc-600 shrink-0" />
@@ -183,7 +183,7 @@ function PresentationModule({
       <Icon {...ICON_PROPS} className="text-zinc-500 shrink-0 mt-0.5" />
       <div>
         <span className="font-mono text-xs text-white">{label}</span>
-        <p className="font-mono text-xs text-zinc-500 mt-0.5">{sub}</p>
+        <p className="font-mono text-xs text-zinc-400 mt-0.5">{sub}</p>
       </div>
     </div>
   );
@@ -226,7 +226,7 @@ function MarlCard({
         <Icon {...ICON_PROPS} className="text-zinc-500 shrink-0" />
         {title}
       </div>
-      <ul className="pl-5 font-mono text-xs text-zinc-500 space-y-0.5">
+      <ul className="pl-5 font-mono text-xs text-zinc-400 space-y-0.5">
         {items.map((item) => (
           <li key={item}>{item}</li>
         ))}

@@ -27,7 +27,7 @@ export default function LocaleLayout({
             Umvili
           </Link>
           <div className="flex items-center gap-6 sm:gap-8 ml-auto">
-            <nav className="hidden sm:flex items-center gap-6 text-sm text-muted">
+            <nav className="hidden sm:flex items-center gap-6 text-sm text-zinc-400">
               <a href="#background" className="hover:text-white transition-colors">
                 {t['nav.background']}
               </a>

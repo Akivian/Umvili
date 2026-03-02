@@ -7,10 +7,10 @@ import { Cpu, Layers, LineChart, Settings } from 'lucide-react';
 const iconClass = 'w-5 h-5 text-zinc-400';
 
 const cells = [
-  { key: 'algorithms', Icon: Cpu, title: 'IQL & QMIX', desc: 'Independent Q-Learning and QMIX with prioritized replay.', accent: 'mint' as const },
-  { key: 'environment', Icon: Layers, title: 'Sugar / Spice / Hazard', desc: 'Multi-resource environment with dynamic zones.', accent: 'cream' as const },
-  { key: 'visualization', Icon: LineChart, title: 'Real-time Metrics', desc: 'Loss, Q-value, TD error, exploration rate, policy entropy.', accent: 'pink' as const },
-  { key: 'config', Icon: Settings, title: 'JSON/YAML Config', desc: 'Flexible configuration and CLI overrides.', accent: 'mint' as const },
+  { key: 'algorithms', Icon: Cpu, title: 'IQL & QMIX', desc: 'Independent Q-Learning and QMIX with prioritized replay.' },
+  { key: 'environment', Icon: Layers, title: 'Sugar / Spice / Hazard', desc: 'Multi-resource environment with dynamic zones.' },
+  { key: 'visualization', Icon: LineChart, title: 'Real-time Metrics', desc: 'Loss, Q-value, TD error, exploration rate, policy entropy.' },
+  { key: 'config', Icon: Settings, title: 'JSON/YAML Config', desc: 'Flexible configuration and CLI overrides.' },
 ];
 
 interface BentoSectionProps {
@@ -31,7 +31,7 @@ export function BentoSection({ title, subtitle }: BentoSectionProps) {
         >
           <TechnicalHeader title={title} subtitle={subtitle} />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {cells.map(({ key, Icon, title: cellTitle, desc, accent }, i) => (
+            {cells.map(({ key, Icon, title: cellTitle, desc }, i) => (
               <motion.div
                 key={key}
                 initial={{ opacity: 0, y: 8 }}
@@ -39,7 +39,7 @@ export function BentoSection({ title, subtitle }: BentoSectionProps) {
                 viewport={{ once: true }}
                 transition={{ duration: 0.3, delay: i * 0.05 }}
               >
-                <HairlineCard accent={accent}>
+                <HairlineCard>
                   <Icon className={iconClass} strokeWidth={1.2} />
                   <h3 className="mt-3 font-medium text-white text-sm">{cellTitle}</h3>
                   <p className="mt-1 text-xs text-zinc-400">{desc}</p>

@@ -27,13 +27,13 @@ export function GuideSection({ title, subtitle }: GuideSectionProps) {
         >
           <aside className="md:w-48 shrink-0">
             <nav className="sticky top-24 space-y-1 text-sm">
-              <a href="#guide" className="block text-muted hover:text-white font-mono">
+              <a href="#guide" className="block text-zinc-400 hover:text-white font-mono transition-colors">
                 01 — Quick start
               </a>
-              <a href="#guide" className="block text-muted hover:text-white font-mono">
+              <a href="#guide" className="block text-zinc-400 hover:text-white font-mono transition-colors">
                 02 — Configuration
               </a>
-              <a href="#guide" className="block text-muted hover:text-white font-mono">
+              <a href="#guide" className="block text-zinc-400 hover:text-white font-mono transition-colors">
                 03 — Agent types
               </a>
             </nav>
@@ -42,10 +42,12 @@ export function GuideSection({ title, subtitle }: GuideSectionProps) {
             <TechnicalHeader title={title} subtitle={subtitle} />
             <ol className="space-y-6">
               {steps.map(({ id, label, code }) => (
-                <li key={id} className="border-l border-[#27272A] pl-5">
-                  <span className="text-xs font-mono text-muted">{String(id).padStart(2, '0')}</span>
-                  <p className="mt-1 text-sm text-white">{label}</p>
-                  <pre className="mt-2 p-3 rounded-sm bg-[#09090b] border border-[#27272A] font-mono text-xs text-[#A1A1AA] overflow-x-auto">
+                <li key={id} className="border-l border-zinc-800 pl-5">
+                  <span className="inline-flex px-2 py-0.5 font-mono text-xs bg-zinc-900 border border-zinc-800 rounded-sm text-zinc-400">
+                    {String(id).padStart(2, '0')}
+                  </span>
+                  <p className="mt-2 text-sm text-white">{label}</p>
+                  <pre className="mt-2 p-3 rounded-sm bg-[rgba(9,9,11,0.6)] border border-zinc-800 font-mono text-xs text-zinc-400 overflow-x-auto">
                     {code}
                   </pre>
                 </li>

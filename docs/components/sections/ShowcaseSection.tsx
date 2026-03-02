@@ -20,8 +20,8 @@ export function ShowcaseSection({ title, subtitle }: ShowcaseSectionProps) {
           className="space-y-6"
         >
           <TechnicalHeader title={title} subtitle={subtitle} />
-          <div className="border border-[#27272A] rounded-sm bg-[#09090b] overflow-hidden">
-            <div className="flex items-center gap-2 border-b border-[#27272A] px-4 py-2">
+          <div className="rounded-sm overflow-hidden bg-[rgba(9,9,11,0.6)] backdrop-blur-xl border border-[rgba(39,39,42,0.8)] shadow-[inset_0_1px_1px_0_rgba(255,255,255,0.1)]">
+            <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-2">
               <span className="w-2.5 h-2.5 rounded-full bg-[#71717a]" />
               <span className="w-2.5 h-2.5 rounded-full bg-[#71717a]" />
               <span className="w-2.5 h-2.5 rounded-full bg-[#71717a]" />

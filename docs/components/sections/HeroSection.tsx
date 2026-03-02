@@ -20,18 +20,18 @@ export function HeroSection({ badge, title, tagline, cta, command }: HeroSection
           transition={{ duration: 0.4 }}
           className="space-y-6"
         >
-          <span className="inline-block font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-2">
+          <span className="inline-flex items-center px-2 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-400 bg-zinc-900 border border-zinc-800 rounded-sm mb-3">
             {badge}
           </span>
-          <h1 className="text-4xl sm:text-5xl font-semibold tracking-tighter text-white">
+          <h1 className="text-4xl sm:text-5xl font-semibold text-white" style={{ letterSpacing: '-0.05em' }}>
             {title}
           </h1>
           <p className="text-lg text-zinc-400 max-w-2xl">{tagline}</p>
           <div className="pt-2">
-            <p className="text-xs text-muted uppercase tracking-wider mb-2 font-mono">
+            <p className="text-xs text-zinc-400 uppercase tracking-wider mb-2 font-mono">
               {cta}
             </p>
-            <div className="border border-[#27272A] rounded-sm bg-[#09090b] p-4 font-mono text-sm text-[#A1A1AA] overflow-x-auto">
+            <div className="border border-zinc-800 rounded-sm bg-[rgba(9,9,11,0.6)] p-4 font-mono text-sm text-zinc-400 overflow-x-auto">
               <code className="text-[#e4e4e7]">
                 <span className="text-[#71717a]">$</span> {command}
               </code>

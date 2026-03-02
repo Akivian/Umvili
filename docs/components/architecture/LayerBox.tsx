@@ -28,7 +28,10 @@ export function LayerBox({
   return (
     <Wrapper
       className={cn(
-        'relative rounded-sm border border-zinc-800 bg-black min-h-[80px] overflow-hidden',
+        'relative z-10 rounded-sm min-h-[80px] overflow-hidden',
+        'bg-[rgba(9,9,11,0.6)] backdrop-blur-xl',
+        'border border-[rgba(39,39,42,0.8)]',
+        'shadow-[inset_0_1px_1px_0_rgba(255,255,255,0.1)]',
         className
       )}
       {...layoutProps}
@@ -38,18 +41,21 @@ export function LayerBox({
   );
 }
 
-/** Mono label for high-density sub-components */
+/** Mono label for high-density sub-components. Use tag for physical badge style. */
 export function TechLabel({
   children,
   className,
+  tag,
 }: {
   children: React.ReactNode;
   className?: string;
+  tag?: boolean;
 }) {
   return (
     <span
       className={cn(
-        'font-mono text-xs text-zinc-500 uppercase tracking-wider',
+        'font-mono text-xs uppercase tracking-wider',
+        tag ? 'inline-flex px-2 py-0.5 bg-zinc-900 border border-zinc-800 rounded-sm text-zinc-400' : 'text-zinc-400',
         className
       )}
     >

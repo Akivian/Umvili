@@ -13,13 +13,13 @@ export function ContactSection({ github, docs }: ContactSectionProps) {
     <footer id="contact" className="border-t border-[#27272A]">
       <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 py-12">
         <div className="flex flex-wrap items-center justify-between gap-6">
-          <p className="text-xs text-muted font-mono">Umvili · MARL Visualization Platform</p>
+          <p className="text-xs text-zinc-400 font-mono">Umvili · MARL Visualization Platform</p>
           <nav className="flex items-center gap-6">
             <Link
               href="https://github.com/Akivian/Umvili"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-2 text-sm text-muted hover:text-white transition-colors"
+              className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors"
             >
               <Github className="w-4 h-4" strokeWidth={1.2} />
               {github}
@@ -28,7 +28,7 @@ export function ContactSection({ github, docs }: ContactSectionProps) {
               href="https://github.com/Akivian/Umvili/tree/main/docs/reference"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-2 text-sm text-muted hover:text-white transition-colors"
+              className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors"
             >
               <FileText className="w-4 h-4" strokeWidth={1.2} />
               {docs}
