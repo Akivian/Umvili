@@ -101,3 +101,17 @@ h2 {
   50%, 100% { opacity: 0; }
 }
 
+/* Flow path photon (stroke-dashoffset) */
+@keyframes flowPhotonDown {
+  to { stroke-dashoffset: -24; }
+}
+@keyframes flowPhotonUp {
+  to { stroke-dashoffset: 24; }
+}
+.flow-photon-down {
+  animation: flowPhotonDown 1.8s linear infinite;
+}
+.flow-photon-up {
+  animation: flowPhotonUp 1.8s linear infinite;
+}
+

@@ -51,6 +51,7 @@ export default function Home({ params }: { params: { locale: string } }) {
           configEntry: t['arch.configEntry'],
           envEngine: t['arch.envEngine'],
           marlMaster: t['arch.marlMaster'],
+          marlKernel: t['arch.marlKernel'],
           marlSimplified: t['arch.marlSimplified'],
           logicController: t['arch.logicController'],
           analyticsHub: t['arch.analyticsHub'],

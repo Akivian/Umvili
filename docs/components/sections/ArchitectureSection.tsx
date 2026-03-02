@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   GitBranch,
@@ -18,7 +19,7 @@ import {
   ArrowDown,
 } from 'lucide-react';
 import { Divider, TechnicalHeader } from '../design-system';
-import { LayerBox, TechLabel } from '../architecture';
+import { CarrierContainer, FlowPaths, TechLabel } from '../architecture';
 
 export interface ArchitectureLabels {
   title: string;
@@ -38,6 +39,7 @@ export interface ArchitectureLabels {
   configEntry: string;
   envEngine: string;
   marlMaster: string;
+  marlKernel: string;
   marlSimplified: string;
   logicController: string;
   analyticsHub: string;
@@ -61,9 +63,12 @@ export interface ArchitectureLabels {
 const ICON_PROPS = { size: 14, strokeWidth: 1.2 };
 
 export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) {
+  const [marlHovered, setMarlHovered] = useState(false);
+
   return (
-    <section id="architecture" className="bg-black">
-      <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 py-20">
+    <section id="architecture" className="bg-black relative">
+      <FlowPaths />
+      <div className="relative w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 py-20">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -72,7 +77,7 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
         >
           <TechnicalHeader title={labels.title} subtitle={labels.subtitle} />
 
-          {/* Level 1: PRESENTATION LAYER — clean horizontal row */}
+          {/* Level 1: PRESENTATION LAYER — L-brackets, LAYER_ID: 0x01 */}
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -80,18 +85,36 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
             transition={{ type: 'spring', stiffness: 120, damping: 20, delay: 0 }}
             className="mt-10"
           >
-            <LayerBox className="min-h-[88px]">
-              <TechLabel tag className="block mb-3">{labels.presentation}</TechLabel>
+            <CarrierContainer hexId="LAYER_ID: 0x01" className="min-h-[88px]">
+              <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 block mb-3">
+                {labels.presentation}
+              </span>
               <div className="flex flex-wrap items-center gap-6 sm:gap-8">
-                <PresentationModule icon={ArrowDown} label={`${labels.simData} (Input)`} sub="State, Metrics" />
-                <PresentationModule icon={Map} label={labels.maps} sub={`${labels.mapsSugar}, ${labels.mapsSpice}, ${labels.mapsHazard}`} />
-                <PresentationModule icon={LayoutList} label={labels.tabs} sub={`${labels.tabsOverview}, ${labels.tabsBehavior}, …`} />
-                <PresentationModule icon={Settings} label={`${labels.configBuilder} (Output)`} sub="Config → Core" />
+                <PresentationModule
+                  icon={ArrowDown}
+                  label={`${labels.simData} (Input)`}
+                  sub="State, Metrics"
+                />
+                <PresentationModule
+                  icon={Map}
+                  label={labels.maps}
+                  sub={`${labels.mapsSugar}, ${labels.mapsSpice}, ${labels.mapsHazard}`}
+                />
+                <PresentationModule
+                  icon={LayoutList}
+                  label={labels.tabs}
+                  sub={`${labels.tabsOverview}, ${labels.tabsBehavior}, …`}
+                />
+                <PresentationModule
+                  icon={Settings}
+                  label={`${labels.configBuilder} (Output)`}
+                  sub="Config → Core"
+                />
               </div>
-            </LayerBox>
+            </CarrierContainer>
           </motion.div>
 
-          {/* Level 2: CORE LAYER (SIMULATION ENGINE) — largest container, shell */}
+          {/* Level 2: CORE LAYER — largest, CORE_V2.0, pipeline + MARL nested */}
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -99,31 +122,53 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
             transition={{ type: 'spring', stiffness: 120, damping: 20, delay: 0.05 }}
             className="mt-6"
           >
-            <div className="relative z-10 rounded-sm p-6 overflow-hidden bg-[rgba(9,9,11,0.6)] backdrop-blur-xl border border-[rgba(39,39,42,0.8)] shadow-[inset_0_1px_1px_0_rgba(255,255,255,0.1)]">
-              <TechLabel tag className="block mb-4">{labels.coreLayer}</TechLabel>
+            <CarrierContainer hexId="CORE_V2.0" className="min-h-[280px]">
+              <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 block mb-4">
+                {labels.coreLayer}
+              </span>
 
-              {/* Pipeline: Config Entry → Env Engine → MARL Master → Logic Controller → Analytics Hub */}
+              {/* Internal pipeline: Config Entry → Env Engine → MARL KERNEL → Logic Controller → Analytics Hub */}
               <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                 <PipelineNode icon={Settings} label={labels.configEntry} />
                 <ArrowRight {...ICON_PROPS} className="text-zinc-600 shrink-0" />
                 <PipelineNode icon={Cpu} label={labels.envEngine} />
                 <ArrowRight {...ICON_PROPS} className="text-zinc-600 shrink-0" />
-                <PipelineNode icon={Boxes} label={labels.marlMaster} />
+                <MarlKernelNode
+                  label={labels.marlKernel}
+                  onHoverChange={setMarlHovered}
+                />
                 <ArrowRight {...ICON_PROPS} className="text-zinc-600 shrink-0" />
                 <PipelineNode icon={LayoutGrid} label={labels.logicController} />
                 <ArrowRight {...ICON_PROPS} className="text-zinc-600 shrink-0" />
                 <PipelineNode icon={BarChart3} label={labels.analyticsHub} />
               </div>
 
-              {/* Level 3 (nested in Core): ALGORITHM IMPLEMENTATIONS — MARL portal sub-grid */}
+              {/* Variable injection: t mod 4 == 0, env.grow_back() */}
+              <p className="mt-2 font-mono text-[10px] text-zinc-500">
+                t mod 4 == 0, env.grow_back()
+              </p>
+
+              {/* Engine Room: ALGORITHM IMPLEMENTATIONS — sunken sub-grid below MARL KERNEL */}
               <div className="mt-6 pt-5">
                 <div className="h-px w-full bg-[linear-gradient(to_right,transparent_0%,#18181b_15%,#18181b_85%,transparent_100%)] mb-5" />
-                <TechLabel tag className="block mb-3">{labels.algorithmImpl}</TechLabel>
-                <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-4 items-start">
+                <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 block mb-3">
+                  {labels.algorithmImpl}
+                </span>
+                <div
+                  className={`
+                    grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-4 items-start p-4 rounded-sm
+                    bg-zinc-950/60 backdrop-blur-sm
+                    border border-dashed border-zinc-800
+                    shadow-[inset_0_2px_8px_rgba(0,0,0,0.3)]
+                    transition-opacity duration-200
+                    ${marlHovered ? 'opacity-100 ring-1 ring-zinc-600/30' : 'opacity-90'}
+                  `}
+                >
                   <MarlCard
                     icon={GitBranch}
                     title={labels.modIql}
                     items={[labels.iqlQNet, labels.iqlPolicy, labels.iqlPER, labels.iqlTarget]}
+                    meta="γ=0.99, Soft Update (τ)"
                   />
                   <div className="hidden sm:flex items-center justify-center pt-8 text-zinc-600" aria-hidden>
                     <GitFork size={18} strokeWidth={1.2} />
@@ -132,20 +177,21 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
                     icon={Network}
                     title={labels.modQmix}
                     items={[labels.qmixMixing, labels.qmixHyper, labels.qmixAgentNets]}
+                    meta="γ=0.99, Soft Update (τ)"
                   />
                 </div>
               </div>
 
-              {/* Exit: Simulation Data Snapshot at bottom of Core */}
+              {/* Exit: Simulation Data Snapshot */}
               <div className="mt-6 pt-4 flex items-center gap-2">
                 <ArrowDown {...ICON_PROPS} className="text-zinc-500 shrink-0" />
                 <TechLabel>{labels.dataSnapshot}</TechLabel>
-                <span className="font-mono text-xs text-zinc-500">[{labels.snapshotLabels}]</span>
+                <span className="font-mono text-[10px] text-zinc-500">[{labels.snapshotLabels}]</span>
               </div>
-            </div>
+            </CarrierContainer>
           </motion.div>
 
-          {/* Level 4: CONFIGURATION LAYER */}
+          {/* Level 3: CONFIGURATION LAYER */}
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -153,8 +199,10 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
             transition={{ type: 'spring', stiffness: 120, damping: 20, delay: 0.1 }}
             className="mt-6"
           >
-            <LayerBox>
-              <TechLabel tag className="block mb-3">{labels.configLayer}</TechLabel>
+            <CarrierContainer hexId="LAYER_ID: 0x03">
+              <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 block mb-3">
+                {labels.configLayer}
+              </span>
               <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                 <PipelineNode icon={Database} label={labels.defaults} />
                 <ArrowRight {...ICON_PROPS} className="text-zinc-600 shrink-0" />
@@ -162,7 +210,7 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
                 <ArrowRight {...ICON_PROPS} className="text-zinc-600 shrink-0" />
                 <PipelineNode icon={Database} label={labels.schemaAppSimUi} />
               </div>
-            </LayerBox>
+            </CarrierContainer>
           </motion.div>
         </motion.div>
       </div>
@@ -186,8 +234,8 @@ function PresentationModule({
     <div className="flex items-start gap-2 min-w-0">
       <Icon {...ICON_PROPS} className="text-zinc-500 shrink-0 mt-0.5" />
       <div>
-        <span className="font-mono text-xs text-white">{label}</span>
-        <p className="font-mono text-xs text-zinc-400 mt-0.5">{sub}</p>
+        <span className="font-mono text-[12px] text-white">{label}</span>
+        <p className="font-mono text-[10px] text-zinc-400 mt-0.5">{sub}</p>
       </div>
     </div>
   );
@@ -205,7 +253,7 @@ function PipelineNode({
   return (
     <span
       id={id}
-      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-sm border border-zinc-800 bg-zinc-900/30 font-mono text-xs text-zinc-300"
+      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-sm border border-zinc-800 bg-zinc-900/30 font-mono text-[12px] text-zinc-300"
     >
       <Icon {...ICON_PROPS} className="text-zinc-500 shrink-0" />
       {label}
@@ -213,24 +261,55 @@ function PipelineNode({
   );
 }
 
-/** MARL implementation card: path label core.marl.v1, border-zinc-900, subtle glow */
+/** MARL KERNEL node with pulsing LED and hover to highlight nested sub-cards */
+function MarlKernelNode({
+  label,
+  onHoverChange,
+}: {
+  label: string;
+  onHoverChange: (hovered: boolean) => void;
+}) {
+  return (
+    <span
+      className="inline-flex items-center gap-2 px-2 py-1 rounded-sm border border-zinc-800 bg-zinc-900/30 font-mono text-[12px] text-zinc-300 cursor-default"
+      onMouseEnter={() => onHoverChange(true)}
+      onMouseLeave={() => onHoverChange(false)}
+    >
+      <span
+        className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"
+        aria-hidden
+      />
+      <span className="flex items-center gap-1.5">
+        <Boxes {...ICON_PROPS} className="text-zinc-500 shrink-0" />
+        {label}
+      </span>
+    </span>
+  );
+}
+
+/** MARL implementation card: bg-zinc-950, dashed border, γ=0.99 meta */
 function MarlCard({
   icon: Icon,
   title,
   items,
+  meta,
 }: {
   icon: React.ElementType;
   title: string;
   items: string[];
+  meta?: string;
 }) {
   return (
-    <div className="rounded-sm border border-zinc-900 bg-zinc-900/30 p-4 shadow-[0_0_10px_rgba(255,255,255,0.05)]">
-      <p className="font-mono text-[10px] text-zinc-600 uppercase tracking-wider mb-2">core.marl.v1</p>
-      <div className="flex items-center gap-2 text-white font-mono text-xs mb-2">
+    <div className="rounded-sm border border-dashed border-zinc-800 bg-zinc-950 p-4 shadow-[inset_0_1px_2px_rgba(0,0,0,0.2)]">
+      <p className="font-mono text-[10px] text-zinc-600 uppercase tracking-wider mb-1">core.marl.v1</p>
+      {meta && (
+        <p className="font-mono text-[10px] text-zinc-500 mb-2">{meta}</p>
+      )}
+      <div className="flex items-center gap-2 text-white font-mono text-[12px] mb-2">
         <Icon {...ICON_PROPS} className="text-zinc-500 shrink-0" />
         {title}
       </div>
-      <ul className="pl-5 font-mono text-xs text-zinc-400 space-y-0.5">
+      <ul className="pl-5 font-mono text-[12px] text-zinc-400 space-y-0.5">
         {items.map((item) => (
           <li key={item}>{item}</li>
         ))}
