@@ -19,10 +19,10 @@ export function HeroSection({ title, tagline, cta, command }: HeroSectionProps) 
           transition={{ duration: 0.4 }}
           className="space-y-6"
         >
-          <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight text-white">
+          <h1 className="text-4xl sm:text-5xl font-semibold tracking-tighter text-white">
             {title}
           </h1>
-          <p className="text-lg text-[#A1A1AA] max-w-2xl">{tagline}</p>
+          <p className="text-lg text-zinc-400 max-w-2xl">{tagline}</p>
           <div className="pt-2">
             <p className="text-xs text-muted uppercase tracking-wider mb-2 font-mono">
               {cta}

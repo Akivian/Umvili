@@ -20,7 +20,7 @@ export default function LocaleLayout({
   const t = getMessages(locale);
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col relative z-10">
       <header className="sticky top-0 z-50 border-b border-[#27272A] bg-black/95 backdrop-blur supports-[backdrop-filter]:bg-black/80">
         <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 h-14 flex items-center">
           <Link href={`/${locale}`} className="font-semibold text-white tracking-tight shrink-0">

@@ -4,6 +4,7 @@
 
 :root {
   --background: #000000;
+  --background-center: #0a0a0b;
   --foreground: #ffffff;
   --muted: #a1a1aa;
   --border: #27272a;
@@ -14,10 +15,52 @@
   --accent-pink: #fbcfe8;
 }
 
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom thin scrollbar (Zinc-800) */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: #27272a transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
 body {
-  background: var(--background);
+  background: radial-gradient(ellipse at center, var(--background-center) 0%, var(--background) 100%);
+  background-attachment: fixed;
   color: var(--foreground);
   font-feature-settings: 'rlig' 1, 'calt' 1;
+}
+
+/* Dot grid overlay (24px spacing, 0.5px dots) */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(circle, #27272a 0.5px, transparent 0.5px);
+  background-size: 24px 24px;
+  opacity: 0.4;
+  z-index: 0;
 }
 
 /* Hairline borders */
@@ -31,8 +74,15 @@ body {
   border-color: var(--border-subtle);
 }
 
-/* Monospace for terminal/code */
+/* Monospace for technical labels & indices */
 .font-mono {
   font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
 }
+
+/* H1/H2: tighter tracking */
+h1, h2 {
+  letter-spacing: -0.025em;
+}
+
+/* Secondary/description text: use text-zinc-400 for visual breath */
 
