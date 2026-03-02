@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { HairlineCard, TechnicalHeader } from '../design-system';
+import { Divider, HairlineCard, TechnicalHeader } from '../design-system';
 import { Cpu, Layers, LineChart, Settings } from 'lucide-react';
 
 const iconClass = 'w-5 h-5 text-zinc-400';
@@ -20,7 +20,7 @@ interface BentoSectionProps {
 
 export function BentoSection({ title, subtitle }: BentoSectionProps) {
   return (
-    <section id="functionality" className="border-b border-[#27272A]">
+    <section id="functionality">
       <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 py-20">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -48,6 +48,9 @@ export function BentoSection({ title, subtitle }: BentoSectionProps) {
             ))}
           </div>
         </motion.div>
+      </div>
+      <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10">
+        <Divider />
       </div>
     </section>
   );

@@ -1,6 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import { Divider, InteractiveTerminal } from '../design-system';
 
 interface HeroSectionProps {
   badge: string;
@@ -12,7 +13,7 @@ interface HeroSectionProps {
 
 export function HeroSection({ badge, title, tagline, cta, command }: HeroSectionProps) {
   return (
-    <section className="relative border-b border-[#27272A]">
+    <section className="relative">
       <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 py-24 sm:py-32">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -31,13 +32,20 @@ export function HeroSection({ badge, title, tagline, cta, command }: HeroSection
             <p className="text-xs text-zinc-400 uppercase tracking-wider mb-2 font-mono">
               {cta}
             </p>
-            <div className="border border-zinc-800 rounded-sm bg-[rgba(9,9,11,0.6)] p-4 font-mono text-sm text-zinc-400 overflow-x-auto">
-              <code className="text-[#e4e4e7]">
-                <span className="text-[#71717a]">$</span> {command}
-              </code>
-            </div>
+            <InteractiveTerminal>
+              <pre className="m-0 overflow-x-auto">
+                <code>
+                  <span className="text-zinc-500">$</span>{' '}
+                  <span className="text-zinc-200">{command}</span>
+                  <InteractiveTerminal.BlinkCursor />
+                </code>
+              </pre>
+            </InteractiveTerminal>
           </div>
         </motion.div>
+      </div>
+      <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10">
+        <Divider />
       </div>
     </section>
   );

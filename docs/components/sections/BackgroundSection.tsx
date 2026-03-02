@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { HairlineCard, TechnicalHeader } from '../design-system';
+import { Divider, HairlineCard, TechnicalHeader } from '../design-system';
 
 interface BackgroundSectionProps {
   originTitle: string;
@@ -17,7 +17,7 @@ export function BackgroundSection({
   problemText,
 }: BackgroundSectionProps) {
   return (
-    <section id="background" className="border-b border-[#27272A]">
+    <section id="background">
       <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 py-20">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -28,15 +28,18 @@ export function BackgroundSection({
         >
           <HairlineCard as="article">
             <TechnicalHeader title={originTitle} />
-            <div className="mt-4 h-px bg-zinc-800/50" />
+            <Divider className="mt-4" />
             <p className="mt-4 text-sm text-zinc-400 leading-relaxed">{originText}</p>
           </HairlineCard>
           <HairlineCard as="article">
             <TechnicalHeader title={problemTitle} />
-            <div className="mt-4 h-px bg-zinc-800/50" />
+            <Divider className="mt-4" />
             <p className="mt-4 text-sm text-zinc-400 leading-relaxed">{problemText}</p>
           </HairlineCard>
         </motion.div>
+      </div>
+      <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10">
+        <Divider />
       </div>
     </section>
   );

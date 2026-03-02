@@ -17,7 +17,7 @@ import {
   Database,
   ArrowDown,
 } from 'lucide-react';
-import { TechnicalHeader } from '../design-system';
+import { Divider, TechnicalHeader } from '../design-system';
 import { LayerBox, TechLabel } from '../architecture';
 
 export interface ArchitectureLabels {
@@ -62,7 +62,7 @@ const ICON_PROPS = { size: 14, strokeWidth: 1.2 };
 
 export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) {
   return (
-    <section id="architecture" className="border-b border-zinc-800 bg-black">
+    <section id="architecture" className="bg-black">
       <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 py-20">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -116,7 +116,8 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
               </div>
 
               {/* Level 3 (nested in Core): ALGORITHM IMPLEMENTATIONS — MARL portal sub-grid */}
-              <div className="mt-6 pt-5 border-t border-zinc-800">
+              <div className="mt-6 pt-5">
+                <div className="h-px w-full bg-[linear-gradient(to_right,transparent_0%,#18181b_15%,#18181b_85%,transparent_100%)] mb-5" />
                 <TechLabel tag className="block mb-3">{labels.algorithmImpl}</TechLabel>
                 <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-4 items-start">
                   <MarlCard
@@ -136,7 +137,7 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
               </div>
 
               {/* Exit: Simulation Data Snapshot at bottom of Core */}
-              <div className="mt-6 pt-4 border-t border-zinc-800 flex items-center gap-2">
+              <div className="mt-6 pt-4 flex items-center gap-2">
                 <ArrowDown {...ICON_PROPS} className="text-zinc-500 shrink-0" />
                 <TechLabel>{labels.dataSnapshot}</TechLabel>
                 <span className="font-mono text-xs text-zinc-500">[{labels.snapshotLabels}]</span>
@@ -164,6 +165,9 @@ export function ArchitectureSection({ labels }: { labels: ArchitectureLabels }) 
             </LayerBox>
           </motion.div>
         </motion.div>
+      </div>
+      <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10">
+        <Divider />
       </div>
     </section>
   );

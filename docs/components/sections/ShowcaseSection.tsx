@@ -1,16 +1,17 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { TechnicalHeader } from '../design-system';
+import { Divider, InteractiveTerminal, TechnicalHeader } from '../design-system';
 
 interface ShowcaseSectionProps {
   title: string;
   subtitle: string;
 }
 
+/** Zinc theme: prompt zinc-500, command zinc-200, args zinc-400, flag values cyan-400 */
 export function ShowcaseSection({ title, subtitle }: ShowcaseSectionProps) {
   return (
-    <section id="showcase" className="border-b border-[#27272A]">
+    <section id="showcase">
       <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 py-20">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -20,30 +21,29 @@ export function ShowcaseSection({ title, subtitle }: ShowcaseSectionProps) {
           className="space-y-6"
         >
           <TechnicalHeader title={title} subtitle={subtitle} />
-          <div className="rounded-sm overflow-hidden bg-[rgba(9,9,11,0.6)] backdrop-blur-xl border border-[rgba(39,39,42,0.8)] shadow-[inset_0_1px_1px_0_rgba(255,255,255,0.1)]">
-            <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#71717a]" />
-              <span className="w-2.5 h-2.5 rounded-full bg-[#71717a]" />
-              <span className="w-2.5 h-2.5 rounded-full bg-[#71717a]" />
-            </div>
-            <pre className="p-4 font-mono text-sm overflow-x-auto">
+          <InteractiveTerminal>
+            <pre className="m-0 overflow-x-auto">
               <code>
-                <span className="text-[#71717a]">$</span>{' '}
-                <span className="text-[#e4e4e7]">python main.py</span>
+                <span className="text-zinc-500">$</span>{' '}
+                <span className="text-zinc-200">python main.py</span>
                 {'\n'}
-                <span className="text-[#71717a]">$</span>{' '}
-                <span className="text-[#e4e4e7]">python main.py</span>{' '}
-                <span className="text-[#a1a1aa]">--config config/default.json</span>
+                <span className="text-zinc-500">$</span>{' '}
+                <span className="text-zinc-200">python main.py</span>{' '}
+                <span className="text-zinc-400">--config config/default.json</span>
                 {'\n'}
-                <span className="text-[#71717a]">$</span>{' '}
-                <span className="text-[#e4e4e7]">python main.py</span>{' '}
-                <span className="text-[#a1a1aa]">--simulation-type comparative</span>{' '}
-                <span className="text-[#22d3ee]">--grid-size 100</span>{' '}
-                <span className="text-[#22d3ee]">--agents 200</span>
+                <span className="text-zinc-500">$</span>{' '}
+                <span className="text-zinc-200">python main.py</span>{' '}
+                <span className="text-zinc-400">--simulation-type comparative</span>{' '}
+                <span className="text-cyan-400">--grid-size 100</span>{' '}
+                <span className="text-cyan-400">--agents 200</span>
+                <InteractiveTerminal.BlinkCursor />
               </code>
             </pre>
-          </div>
+          </InteractiveTerminal>
         </motion.div>
+      </div>
+      <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10">
+        <Divider />
       </div>
     </section>
   );

@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { locales, type Locale } from '../../common/i18n';
+import { Divider } from '../../components/design-system';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import Link from 'next/link';
 import { getMessages } from '../../common/i18n';
@@ -21,7 +22,7 @@ export default function LocaleLayout({
 
   return (
     <div className="min-h-screen flex flex-col relative z-10">
-      <header className="sticky top-0 z-50 border-b border-[#27272A] bg-black/95 backdrop-blur supports-[backdrop-filter]:bg-black/80">
+      <header className="sticky top-0 z-50 bg-black/95 backdrop-blur supports-[backdrop-filter]:bg-black/80">
         <div className="w-full max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-10 h-14 flex items-center">
           <Link href={`/${locale}`} className="font-semibold text-white tracking-tight shrink-0">
             Umvili
@@ -50,6 +51,7 @@ export default function LocaleLayout({
             <LanguageSwitcher />
           </div>
         </div>
+        <Divider />
       </header>
       <main className="flex-1">{children}</main>
     </div>
