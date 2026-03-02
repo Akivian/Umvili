@@ -54,7 +54,7 @@ export function ModuleCard({
   return (
     <motion.div
       className={cn(
-        'relative rounded-sm border border-[#27272A] bg-zinc-950/80 backdrop-blur-sm transition-all duration-200 hover:bg-zinc-900/50',
+        'relative rounded-sm border border-[#27272A] bg-zinc-950/80 backdrop-blur-sm transition-all duration-200 hover:bg-zinc-900/50 transform-gpu',
         accentGlow[accent],
         className
       )}
@@ -65,7 +65,6 @@ export function ModuleCard({
       onMouseLeave={() => setShowTooltip(false)}
       whileHover={{ scale: 1.02, backgroundColor: 'rgba(24, 24, 27, 0.8)' }}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-      className="transform-gpu"
     >
       <div className="p-4 flex items-start gap-3">
         <span className="text-[#27272A] shrink-0" aria-hidden>
