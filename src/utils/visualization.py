@@ -3575,6 +3575,33 @@ class AcademicVisualizationSystem:
         if 'diversity' in self.charts:
             self.charts['diversity'].add_data_point_conditional('diversity', metrics.diversity, metrics.step)
     
+    def _simulation_has_marl_learning_agents(self, simulation_data: Dict[str, Any]) -> bool:
+        """
+        判断当前是否应展示 IQL/QMIX 的训练与行为时间序列。
+
+        说明：``Simulation._recreate_trainers`` 仅为 QMIX 向 ``marl_trainers`` 注册集中式训练器；
+        IQL 在智能体侧更新 Q 表，``AgentType.IQL`` 的枚举值为 ``independent_q_learning``，
+        不会出现在 ``configuration['marl_trainers']`` 中。仅依赖该列表会导致界面误报
+        “无 IQL/QMIX”，与 ``agents_by_type`` / 实际智能体类型不一致。
+        """
+        learning = frozenset({"iql", "independent_q_learning", "qmix"})
+        config_block = simulation_data.get("configuration", {}) or {}
+        for t in config_block.get("marl_trainers", []) or []:
+            if str(t).lower() in learning:
+                return True
+        metrics_block = simulation_data.get("metrics", {}) or {}
+        for at in metrics_block.get("agents_by_type") or {}:
+            if str(at).lower() in learning:
+                return True
+        for at in simulation_data.get("training_metrics", {}) or {}:
+            if str(at).lower() in learning:
+                return True
+        for ag in simulation_data.get("agents", []) or []:
+            t = ag.get("type")
+            if t is not None and str(t).lower() in learning:
+                return True
+        return False
+
     def _update_training_charts(self, simulation_data: Dict[str, Any]) -> None:
         """
         更新训练指标图表数据
@@ -3586,13 +3613,8 @@ class AcademicVisualizationSystem:
         # 默认清空状态消息，后续根据情况设置
         self.training_status_message = None
         
-        # 检查当前是否存在任何 MARL 训练器（IQL / QMIX）
-        config_block = simulation_data.get('configuration', {}) or {}
-        marl_trainers = config_block.get('marl_trainers', []) or []
-        has_marl_trainer = any(t in ('iql', 'qmix') for t in marl_trainers)
-
-        # 如果当前没有任何 IQL / QMIX 训练器，则不显示训练曲线，而是给出明确提示
-        if not has_marl_trainer:
+        # 是否存在 IQL/QMIX 学习智能体（不能仅看 marl_trainers，见 _simulation_has_marl_learning_agents）
+        if not self._simulation_has_marl_learning_agents(simulation_data):
             for chart in self.training_charts.values():
                 chart.clear_all()
                 chart.lines.clear()
@@ -3735,13 +3757,7 @@ class AcademicVisualizationSystem:
         metrics_block = simulation_data.get("metrics", {}) or {}
         action_dist = metrics_block.get("action_distribution_by_type", {}) or {}
 
-        # 检查当前是否存在任何 MARL 训练器（IQL / QMIX）
-        config_block = simulation_data.get('configuration', {}) or {}
-        marl_trainers = config_block.get('marl_trainers', []) or []
-        has_marl_trainer = any(t in ('iql', 'qmix') for t in marl_trainers)
-
-        # 如果没有 IQL / QMIX，则清空行为图表并给出提示
-        if not has_marl_trainer:
+        if not self._simulation_has_marl_learning_agents(simulation_data):
             for chart in self.behavior_charts.values():
                 chart.clear_all()
                 chart.lines.clear()

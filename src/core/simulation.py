@@ -901,16 +901,24 @@ class MARLSimulation:
         for agent_type, info_list in type_metrics.items():
             if not info_list:
                 continue
+
+            # 排除仅含奖励的补充 dict，避免 .get(..., 0) 把 0 掺进 loss/Q/TD 的均值
+            training_infos = [
+                info for info in info_list
+                if ('training_steps' in info) or ('agent_id' in info)
+            ]
+            if not training_infos:
+                training_infos = list(info_list)
             
             # 计算平均值（不再强制 > 0 过滤，避免真实为 0 的值被丢弃）
-            losses = [info.get('avg_loss', info.get('recent_loss', 0.0)) for info in info_list]
-            q_values = [info.get('avg_q_value', info.get('recent_q_value', 0.0)) for info in info_list]
-            td_errors = [info.get('avg_td_error', 0.0) for info in info_list]
+            losses = [info.get('avg_loss', info.get('recent_loss', 0.0)) for info in training_infos]
+            q_values = [info.get('avg_q_value', info.get('recent_q_value', 0.0)) for info in training_infos]
+            td_errors = [info.get('avg_td_error', 0.0) for info in training_infos]
             exploration_rates = [
                 info.get('exploration_rate', info.get('epsilon', 0.0))
-                for info in info_list
+                for info in training_infos
             ]
-            training_steps = [info.get('training_steps', 0) for info in info_list]
+            training_steps = [info.get('training_steps', 0) for info in training_infos]
             # 奖励统计（平均奖励 + 最近一次奖励）
             reward_values = [
                 info.get('avg_reward', info.get('recent_reward', 0.0))
@@ -927,9 +935,17 @@ class MARLSimulation:
                         recent_reward = float(info.get('recent_reward', info.get('avg_reward', 0.0)))
                         break
             
-            # 获取最近的值（用于实时显示）
-            recent_loss = info_list[-1].get('avg_loss', info_list[-1].get('recent_loss', 0.0)) if info_list else 0.0
-            recent_q_value = info_list[-1].get('avg_q_value', info_list[-1].get('recent_q_value', 0.0)) if info_list else 0.0
+            # 获取最近的值（用于实时显示）；info_list 末尾可能是仅含奖励的 dict，需反向查找
+            recent_loss = 0.0
+            recent_q_value = 0.0
+            for info in reversed(training_infos):
+                if 'avg_loss' in info or 'recent_loss' in info:
+                    recent_loss = float(info.get('avg_loss', info.get('recent_loss', 0.0)))
+                    break
+            for info in reversed(training_infos):
+                if 'avg_q_value' in info or 'recent_q_value' in info:
+                    recent_q_value = float(info.get('avg_q_value', info.get('recent_q_value', 0.0)))
+                    break
             
             metrics = TrainingMetrics(
                 agent_type=agent_type,
@@ -938,7 +954,7 @@ class MARLSimulation:
                 avg_td_error=np.mean(td_errors) if td_errors else 0.0,
                 exploration_rate=np.mean(exploration_rates) if exploration_rates else 0.0,
                 training_steps=max(training_steps) if training_steps else 0,
-                sample_count=len(info_list),
+                sample_count=len(training_infos),
                 recent_loss=recent_loss,
                 recent_q_value=recent_q_value,
                 avg_reward=avg_reward,

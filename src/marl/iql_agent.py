@@ -246,6 +246,8 @@ class IQLAgent(LearningAgent):
                     # 随机探索
                     action_idx = random.randint(0, self.action_dim - 1)
                     self.logger.debug(f"智能体 {self.agent_id} 随机探索: 动作 {action_idx}")
+                    # 仍记录 max_a Q(s,a)，否则高 epsilon 时 q_values 历史为空，可视化会误显示 Q≈0
+                    self._append_monitoring_max_q(state)
                 else:
                     # 利用Q值选择最佳动作
                     if self.q_network is None:
@@ -286,9 +288,10 @@ class IQLAgent(LearningAgent):
                                     # 记录Q值统计
                                     max_q = q_values.max().item()
                                     self.training_stats['q_values'].append(max_q)
-                                
-                                self.logger.debug(f"智能体 {self.agent_id} 利用: "
-                                                f"动作 {action_idx}, Q值 {max_q:.3f}")
+                                    self.logger.debug(
+                                        f"智能体 {self.agent_id} 利用: "
+                                        f"动作 {action_idx}, Q值 {max_q:.3f}"
+                                    )
             
             # 转换为环境动作
             action = self._action_idx_to_position(action_idx)
@@ -427,13 +430,9 @@ class IQLAgent(LearningAgent):
         if len(self.replay_buffer) < max(self.config.learning_starts, self.config.batch_size):
             return
         
-        # 定期学习
+        # 定期学习（loss/td 已在 _update_network 中写入 training_stats，避免重复追加）
         if self.training_step % self.config.train_frequency == 0:
-            loss, td_errors = self._update_network()
-            
-            if loss is not None:
-                self.training_stats['losses'].append(loss)
-                self.training_stats['td_errors'].extend(td_errors)
+            self._update_network()
         
         # 定期更新目标网络
         if self.training_step % self.config.target_update_frequency == 0:
@@ -1000,15 +999,46 @@ class IQLAgent(LearningAgent):
                 'error': str(e)
             }
     
+    def _append_monitoring_max_q(self, state: np.ndarray) -> None:
+        """记录当前状态下 max_a Q(s,a)，用于曲线（与是否执行贪心动作无关）。"""
+        if self.q_network is None:
+            return
+        try:
+            s = np.asarray(state, dtype=np.float32).reshape(-1)
+            if s.size != self.state_dim:
+                return
+            with torch.no_grad():
+                st = torch.FloatTensor(s).unsqueeze(0)
+                qv = self.q_network(st)
+                if qv.dim() == 2 and qv.size(1) == self.action_dim:
+                    self.training_stats['q_values'].append(float(qv.max().item()))
+        except Exception:
+            pass
+
     def get_training_info(self) -> Dict[str, Any]:
         """获取训练信息"""
-        if len(self.training_stats['q_values']) == 0:
+        q_hist = self.training_stats.get('q_values') or []
+        loss_hist = self.training_stats.get('losses') or []
+        td_hist = self.training_stats.get('td_errors') or []
+
+        # 注意：此前在 q_values 为空时把 avg_loss 也置 0，会导致 Loss 曲线长期为直线 0
+        if len(q_hist) == 0:
             avg_q = 0.0
+        else:
+            avg_q = float(np.mean(q_hist[-100:]))
+
+        if len(loss_hist) == 0:
             avg_loss = 0.0
         else:
-            avg_q = np.mean(self.training_stats['q_values'][-100:])  # 最近100步
-            avg_loss = np.mean(self.training_stats['losses'][-100:]) if self.training_stats['losses'] else 0.0
-        
+            avg_loss = float(np.mean(loss_hist[-100:]))
+
+        # 供 simulation 聚合 TD Error 面板；此前未返回该字段，图表恒为 0
+        if len(td_hist) == 0:
+            avg_td = 0.0
+        else:
+            tail = np.asarray(td_hist[-500:], dtype=float)
+            avg_td = float(np.mean(np.abs(tail)))
+
         return {
             'agent_id': self.agent_id,
             'training_steps': self.training_step,
@@ -1016,6 +1046,7 @@ class IQLAgent(LearningAgent):
             'epsilon': self.epsilon,
             'avg_q_value': avg_q,
             'avg_loss': avg_loss,
+            'avg_td_error': avg_td,
             'replay_buffer_size': len(self.replay_buffer),
             'exploration_rate': self.epsilon
         }
