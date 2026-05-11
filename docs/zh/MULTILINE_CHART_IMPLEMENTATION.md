@@ -162,7 +162,7 @@ self.lines: Dict[str, Dict[str, Any]] = {
 
 已创建以下文档：
 
-1. **使用指南** (`docs/MULTILINE_CHART_USAGE.md`)
+1. **使用指南** (`../reference/MULTILINE_CHART_USAGE.md`)
    - 基本使用示例
    - 高级用法
    - 集成示例

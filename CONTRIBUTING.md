@@ -57,7 +57,7 @@ Feature suggestions are welcome! Please:
 
 ## Development Setup
 
-See [Development Guide](docs/DEVELOPMENT.md) for detailed setup instructions.
+See [Development Guide](docs/reference/DEVELOPMENT.md) for detailed setup instructions.
 
 Quick setup:
 ```bash
@@ -202,7 +202,7 @@ When adding new features:
 - **Visualization**: Update `src/utils/visualization.py`
 - **Documentation**: Update relevant `.md` files in `docs/`
 
-See [Architecture Documentation](docs/ARCHITECTURE.md) for details.
+See [Architecture Documentation](docs/reference/ARCHITECTURE.md) for details.
 
 ## Review Process
 

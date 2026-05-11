@@ -885,12 +885,12 @@ class MARLSimulation:
                         type_metrics[agent_type] = []
                     
                     # 将训练器统计转换为与智能体统计一致的格式
+                    # 勿写入 exploration_rate：集中式训练器没有 ε，写 0 会稀释各智能体上报的探索率均值
                     trainer_info = {
                         'avg_loss': stats.get('avg_loss', stats.get('recent_loss', 0.0)),
                         'avg_q_value': stats.get('avg_q_value', stats.get('recent_q_value', 0.0)),
                         'avg_td_error': stats.get('avg_td_error', 0.0),
                         'training_steps': stats.get('training_steps', 0),
-                        'exploration_rate': 0.0  # 训练器不直接提供探索率
                     }
                     type_metrics[agent_type].append(trainer_info)
             except Exception as e:
@@ -909,14 +909,27 @@ class MARLSimulation:
             ]
             if not training_infos:
                 training_infos = list(info_list)
-            
-            # 计算平均值（不再强制 > 0 过滤，避免真实为 0 的值被丢弃）
-            losses = [info.get('avg_loss', info.get('recent_loss', 0.0)) for info in training_infos]
-            q_values = [info.get('avg_q_value', info.get('recent_q_value', 0.0)) for info in training_infos]
-            td_errors = [info.get('avg_td_error', 0.0) for info in training_infos]
-            exploration_rates = [
-                info.get('exploration_rate', info.get('epsilon', 0.0))
+
+            # 仅统计「确实上报了该项」的快照（QMIX 等：loss/Q/TD 多在训练器条目上）
+            losses = [
+                float(info.get('avg_loss', info.get('recent_loss', 0.0)))
                 for info in training_infos
+                if ('avg_loss' in info) or ('recent_loss' in info)
+            ]
+            q_values = [
+                float(info.get('avg_q_value', info.get('recent_q_value', 0.0)))
+                for info in training_infos
+                if ('avg_q_value' in info) or ('recent_q_value' in info)
+            ]
+            td_errors = [
+                float(info.get('avg_td_error', 0.0))
+                for info in training_infos
+                if 'avg_td_error' in info
+            ]
+            exploration_rates = [
+                float(info.get('exploration_rate', info.get('epsilon', 0.0)))
+                for info in training_infos
+                if 'agent_id' in info
             ]
             training_steps = [info.get('training_steps', 0) for info in training_infos]
             # 奖励统计（平均奖励 + 最近一次奖励）

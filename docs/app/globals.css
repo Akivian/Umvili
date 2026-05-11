@@ -1,0 +1,123 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #030303;
+  --background-flare: #111111;
+  --foreground: #ffffff;
+  --muted: #a1a1aa;
+  --border: #27272a;
+  --border-subtle: #18181b;
+  /* Macaron accents: hover glows & 1px accents only */
+  --accent-mint: #a7f3d0;
+  --accent-cream: #fef3c7;
+  --accent-pink: #fbcfe8;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom thin scrollbar: deep gray track + zinc thumb for unified dark theme */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: #27272a #0a0a0b;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0a0a0b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
+::-webkit-scrollbar-corner {
+  background: #0a0a0b;
+}
+
+body {
+  background: var(--background);
+  background-image: radial-gradient(circle at 50% -20%, var(--background-flare) 0%, #000000 80%);
+  background-attachment: fixed;
+  color: var(--foreground);
+  font-feature-settings: 'rlig' 1, 'calt' 1;
+}
+
+/* Dot grid: rendered by ParallaxDotGrid component (client) for mouse parallax */
+
+/* Hairline borders */
+.hairline {
+  border-width: 1px;
+  border-color: var(--border);
+}
+
+.hairline-subtle {
+  border-width: 1px;
+  border-color: var(--border-subtle);
+}
+
+/* Monospace for technical labels & indices */
+.font-mono {
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+}
+
+/* H1: designed letter-spacing */
+h1 {
+  letter-spacing: -0.05em;
+}
+
+h2 {
+  letter-spacing: -0.025em;
+}
+
+/* Secondary/description text: use text-zinc-400 for visual breath */
+
+/* Terminal cursor blink */
+@keyframes blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* Flow path photon (stroke-dashoffset) */
+@keyframes flowPhotonDown {
+  to { stroke-dashoffset: -24; }
+}
+@keyframes flowPhotonUp {
+  to { stroke-dashoffset: 24; }
+}
+.flow-photon-down {
+  animation: flowPhotonDown 3s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+}
+.flow-photon-up {
+  animation: flowPhotonUp 3s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+  animation-delay: 0.5s;
+}
+.led-pulse {
+  animation: ledPulse 3s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+}
+@keyframes ledPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-photon-down,
+  .flow-photon-up,
+  .led-pulse {
+    animation: none;
+  }
+}
+
