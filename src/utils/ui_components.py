@@ -246,16 +246,18 @@ class Slider(UIComponent):
         pygame.draw.rect(screen, handle_color, handle_rect)
         pygame.draw.rect(screen, COLORS.get('PANEL_BORDER', (150, 150, 150)), handle_rect, 2)
         
-        # Label and value
+        # Label and value（标签在滑块上方，留出与字体高度一致的间距，避免与章节标题重叠）
+        label_y = self.rect.top - 18
         if self.label:
-            label_surface = self.render_text(self.label, 'TINY', COLORS['TEXT_PRIMARY'])
-            screen.blit(label_surface, (self.rect.left, self.rect.top - 16))
+            label_surface = self.render_text(self.label, 'SMALL', COLORS['TEXT_PRIMARY'])
+            label_y = self.rect.top - label_surface.get_height() - 4
+            screen.blit(label_surface, (self.rect.left, label_y))
         
         if self.show_value:
             value_text = self.value_format.format(self.value)
-            value_surface = self.render_text(value_text, 'TINY', COLORS['TEXT_PRIMARY'])
+            value_surface = self.render_text(value_text, 'SMALL', COLORS['TEXT_PRIMARY'])
             value_x = self.rect.right - value_surface.get_width()
-            screen.blit(value_surface, (value_x, self.rect.top - 16))
+            screen.blit(value_surface, (value_x, label_y))
     
     def handle_event(self, event: pygame.event.Event) -> bool:
         """Handle events"""
@@ -805,7 +807,7 @@ class ButtonGroup(UIComponent):
             
             # Text
             text_color = COLORS.get('TEXT_PRIMARY', (0, 0, 0)) if self.enabled else COLORS.get('GRAY', (120, 120, 120))
-            text_surface = self.render_text(option, 'TINY', text_color)
+            text_surface = self.render_text(option, 'SMALL', text_color)
             text_rect = text_surface.get_rect(center=button_rect.center)
             screen.blit(text_surface, text_rect)
         

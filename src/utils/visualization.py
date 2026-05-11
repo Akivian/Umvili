@@ -2065,8 +2065,8 @@ class AcademicControlPanel:
             pygame.draw.rect(screen, COLORS['PANEL_BG'], self.rect)
             pygame.draw.rect(screen, COLORS['PANEL_BORDER'], self.rect, 1)
             
-            # Title
-            title = self.font_manager.render_text("MARL Simulation Control", 'HEADING', COLORS['TEXT_PRIMARY'])
+            # 主标题：与下方「Simulation Statistics」同级字号（TITLE）
+            title = self.font_manager.render_text("MARL Simulation Control", 'TITLE', COLORS['TEXT_PRIMARY'])
             screen.blit(title, (self.rect.x + 15, self.rect.y + 15))
             
             # Draw buttons
@@ -2101,7 +2101,7 @@ class AcademicControlPanel:
             pygame.draw.rect(screen, color, rect, border_radius=4)
             pygame.draw.rect(screen, COLORS['PANEL_BORDER'], rect, 1, border_radius=4)
             
-            text_surface = self.font_manager.render_text(button['text'], 'BODY', text_color)
+            text_surface = self.font_manager.render_text(button['text'], 'HEADING', text_color)
             text_rect = text_surface.get_rect(center=rect.center)
             screen.blit(text_surface, text_rect)
     
@@ -2109,8 +2109,8 @@ class AcademicControlPanel:
         """Draw statistics section"""
         stats_start_y = self.rect.y + 150
         
-        # Section title
-        title = self.font_manager.render_text("Simulation Statistics", 'BODY', COLORS['TEXT_PRIMARY'])
+        # 与主标题「MARL Simulation Control」同级字号（TITLE）
+        title = self.font_manager.render_text("Simulation Statistics", 'TITLE', COLORS['TEXT_PRIMARY'])
         screen.blit(title, (self.rect.x + 15, stats_start_y))
         
         # Two-column statistics layout to avoid being covered by charts
@@ -2127,18 +2127,18 @@ class AcademicControlPanel:
             f"FPS: {metrics.fps:.1f}",
         ]
         
-        col_spacing = 170
-        row_spacing = 20
-        base_y = stats_start_y + 30
+        col_spacing = 180
+        row_spacing = 22
+        base_y = stats_start_y + title.get_height() + 12
         
         # Left column
         for i, stat in enumerate(stats_left):
-            text_surface = self.font_manager.render_text(stat, 'SMALL', COLORS['TEXT_PRIMARY'])
+            text_surface = self.font_manager.render_text(stat, 'BODY', COLORS['TEXT_PRIMARY'])
             screen.blit(text_surface, (self.rect.x + 20, base_y + i * row_spacing))
         
         # Right column
         for i, stat in enumerate(stats_right):
-            text_surface = self.font_manager.render_text(stat, 'SMALL', COLORS['TEXT_PRIMARY'])
+            text_surface = self.font_manager.render_text(stat, 'BODY', COLORS['TEXT_PRIMARY'])
             screen.blit(
                 text_surface,
                 (self.rect.x + 20 + col_spacing, base_y + i * row_spacing),
@@ -2237,7 +2237,10 @@ class ExperimentConfigPanel:
         self.simulation = simulation
         self.padding = {'left': 15, 'right': 15, 'top': 20, 'bottom': 20}
         self.section_spacing = 25
-        self.component_spacing = 20
+        self.component_spacing = 22
+        # 章节标题字体（略大于正文）；标题与首行控件间距需盖住 Slider 标签上探高度
+        self._section_title_font = 'HEADING'
+        self._section_title_gap_px = 28
         
         # Import UI components
         from src.utils.ui_components import (
@@ -2296,11 +2299,13 @@ class ExperimentConfigPanel:
     def _create_algorithm_selector(self, start_y: int) -> int:
         """Create algorithm combination selector"""
         section_title = "Algorithm Combination"
-        title_surface = self.font_manager.render_text(section_title, 'BODY', COLORS['TEXT_PRIMARY'])
+        title_surface = self.font_manager.render_text(
+            section_title, self._section_title_font, COLORS['TEXT_PRIMARY']
+        )
         title_y = start_y
         self.sections['algorithm'] = {
             'title_y': title_y,
-            'start_y': title_y + title_surface.get_height() + 10
+            'start_y': title_y + title_surface.get_height() + self._section_title_gap_px,
         }
         
         # Button group for algorithm selection
@@ -2308,7 +2313,7 @@ class ExperimentConfigPanel:
             self.rect.x + self.padding['left'],
             self.sections['algorithm']['start_y'],
             self.rect.width - self.padding['left'] - self.padding['right'],
-            35
+            38
         )
         
         options = [
@@ -2333,16 +2338,18 @@ class ExperimentConfigPanel:
     def _create_environment_panel(self, start_y: int) -> int:
         """Create environment configuration panel"""
         section_title = "Environment Configuration"
-        title_surface = self.font_manager.render_text(section_title, 'BODY', COLORS['TEXT_PRIMARY'])
+        title_surface = self.font_manager.render_text(
+            section_title, self._section_title_font, COLORS['TEXT_PRIMARY']
+        )
         title_y = start_y
         self.sections['environment'] = {
             'title_y': title_y,
-            'start_y': title_y + title_surface.get_height() + 10
+            'start_y': title_y + title_surface.get_height() + self._section_title_gap_px,
         }
         
         current_y = self.sections['environment']['start_y']
         component_width = (self.rect.width - self.padding['left'] - self.padding['right'] - 20) // 2
-        slider_height = 30
+        slider_height = 32
         
         # Grid Size
         grid_slider_rect = pygame.Rect(
@@ -2507,16 +2514,18 @@ class ExperimentConfigPanel:
     def _create_hyperparameters_panel(self, start_y: int) -> int:
         """Create algorithm hyperparameters panel"""
         section_title = "Algorithm Hyperparameters"
-        title_surface = self.font_manager.render_text(section_title, 'BODY', COLORS['TEXT_PRIMARY'])
+        title_surface = self.font_manager.render_text(
+            section_title, self._section_title_font, COLORS['TEXT_PRIMARY']
+        )
         title_y = start_y
         self.sections['hyperparameters'] = {
             'title_y': title_y,
-            'start_y': title_y + title_surface.get_height() + 10
+            'start_y': title_y + title_surface.get_height() + self._section_title_gap_px,
         }
         
         current_y = self.sections['hyperparameters']['start_y']
         component_width = (self.rect.width - self.padding['left'] - self.padding['right'] - 20) // 2
-        slider_height = 30
+        slider_height = 32
         
         # IQL Learning Rate
         iql_lr_rect = pygame.Rect(
@@ -2724,7 +2733,7 @@ class ExperimentConfigPanel:
                     section_title = section_name.title()
                 
                 section_title_surface = self.font_manager.render_text(
-                    section_title, 'BODY', COLORS['TEXT_PRIMARY']
+                    section_title, self._section_title_font, COLORS['TEXT_PRIMARY']
                 )
                 screen.blit(section_title_surface, (title_x, section_info['title_y']))
             
@@ -2966,13 +2975,14 @@ class AcademicVisualizationSystem:
         self.training_chart_update_freq = 5
         self.exploration_chart_update_freq = 10
 
-        # Tab 相关尺寸（用于视图与图表区域的分区）
+        # Tab 条高度保持紧凑；仅 Tab 内文字在 _draw_view_tabs 中用更大字号渲染
         self.view_tab_height = 22
         self.view_tab_margin = 6
         
         # Layout constants inside panel
         # Reserve top area of the panel for title, buttons and statistics
-        self.panel_top_reserved = 260  # px from top of panel
+        # 需容纳 TITLE 级「Simulation Statistics」+ BODY 双列统计，并与下方 Tab 留出间距
+        self.panel_top_reserved = 274  # px from top of panel
         
         # 初始化视图 Tab
         self._initialize_view_tabs(panel_x)
@@ -3153,8 +3163,8 @@ class AcademicVisualizationSystem:
 
         for view_id in self.views:
             label = tab_labels.get(view_id, view_id.title())
-            # Experiment tab 稍宽一些
-            width = 100 if view_id == "experiment" else tab_width
+            # Experiment 略宽，避免 BODY 字号下文字贴边
+            width = 104 if view_id == "experiment" else tab_width
             rect = pygame.Rect(x, y, width, tab_height)
             self.view_tabs.append((view_id, rect))
             self.view_tab_rects[view_id] = rect
@@ -3198,7 +3208,8 @@ class AcademicVisualizationSystem:
                 "experiment": "Experiment",
             }
             label = tab_labels.get(view_id, view_id.title())
-            text_surface = self.font_manager.render_text(label, 'TINY', text_color)
+            # 仅放大 Tab 文案；按钮 rect 仍紧凑（文字可略超出框高，居中绘制）
+            text_surface = self.font_manager.render_text(label, 'BODY', text_color)
             text_rect = text_surface.get_rect(center=rect.center)
             screen.blit(text_surface, text_rect)
     
