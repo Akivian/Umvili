@@ -777,8 +777,25 @@ class QValueHeatmapPanel:
         # 显示开关
         self.enabled = False  # 默认关闭，需要用户手动开启
         
-        # 开关按钮rect（在draw时设置）
+        # 开关按钮rect（可由 draw_sidebar_toggle 固定在控制面板旁，或沿用地图角内嵌模式）
         self.toggle_rect: Optional[pygame.Rect] = None
+
+    def draw_sidebar_toggle(self, screen: pygame.Surface, rect: pygame.Rect) -> None:
+        """在控制面板旁绘制 Show/Hide（与 Pause/Resume 按钮同宽、同字号与字色）。"""
+        self.toggle_rect = rect
+        mouse_pos = pygame.mouse.get_pos()
+        if rect.collidepoint(mouse_pos):
+            toggle_bg = COLORS['BUTTON_HOVER']
+        else:
+            toggle_bg = COLORS['BUTTON_NORMAL']
+        # Show / Hide 使用相同字体与颜色（与 AcademicControlPanel 普通按钮一致）
+        toggle_text = "Hide Heatmap" if self.enabled else "Show Heatmap"
+        toggle_text_color = COLORS['TEXT_PRIMARY']
+        pygame.draw.rect(screen, toggle_bg, rect, border_radius=4)
+        pygame.draw.rect(screen, COLORS['PANEL_BORDER'], rect, 1, border_radius=4)
+        toggle_text_surface = self.font_manager.render_text(toggle_text, 'HEADING', toggle_text_color)
+        text_rect = toggle_text_surface.get_rect(center=rect.center)
+        screen.blit(toggle_text_surface, text_rect)
         
     def update(self, agents_by_type: Dict[str, List[Any]], environment: Any) -> None:
         """
@@ -912,69 +929,74 @@ class QValueHeatmapPanel:
         finally:
             agent.x, agent.y = original_x, original_y
     
-    def draw(self, screen: pygame.Surface, grid_size: int, cell_size: int, 
-             env_x: int = 0, env_y: int = 0) -> None:
+    def draw(
+        self,
+        screen: pygame.Surface,
+        grid_size: int,
+        cell_size: int,
+        env_x: int = 0,
+        env_y: int = 0,
+        skip_embedded_toggle: bool = False,
+    ) -> None:
         """
         绘制Q值热图叠加在环境地图上（使用缓存优化性能）
-        
+
         Args:
             screen: Pygame surface
             grid_size: 网格大小
             cell_size: 单元格大小
             env_x, env_y: 环境地图的左上角坐标
+            skip_embedded_toggle: 为 True 时不绘制地图角上的图例/开关（开关改由控制面板旁绘制）
         """
-        # 即使未启用，也显示开关按钮（让用户可以开启）
-        # 在右上角显示图例（包含开关按钮）
         legend_x = env_x + grid_size * cell_size - 150
         legend_y = env_y + 10
-        legend_rect = pygame.Rect(legend_x, legend_y, 140, 90)  # 增加高度以容纳开关
-        pygame.draw.rect(screen, COLORS['CHART_BG'], legend_rect)
-        pygame.draw.rect(screen, COLORS['PANEL_BORDER'], legend_rect, 1)
-        
-        # 图例标题
-        agent_type_label = "IQL/QMIX"  # 默认标签
-        if self.q_maps:
-            for agent_type in self.q_maps.keys():
-                agent_type_label = 'IQL' if 'iql' in agent_type else 'QMIX'
-                break
-        
-        title_text = self.font_manager.render_text(
-            f"Q-Value Heatmap ({agent_type_label})", 'TINY', COLORS['TEXT_PRIMARY']
-        )
-        screen.blit(title_text, (legend_x + 5, legend_y + 5))
-        
-        # 开关按钮（始终显示）
-        toggle_x = legend_x + 5
-        toggle_y = legend_y + 20
-        toggle_width = 130
-        toggle_height = 20
-        self.toggle_rect = pygame.Rect(toggle_x, toggle_y, toggle_width, toggle_height)
-        
-        # 按钮状态颜色
-        mouse_pos = pygame.mouse.get_pos()
-        if self.toggle_rect.collidepoint(mouse_pos):
-            toggle_bg = COLORS['BUTTON_HOVER']
-        else:
-            toggle_bg = COLORS['BUTTON_NORMAL']
-        
-        if self.enabled:
-            toggle_text = "● Hide Heatmap"
-            toggle_text_color = COLORS['SUCCESS']
-        else:
-            toggle_text = "○ Show Heatmap"
-            toggle_text_color = COLORS['TEXT_SECONDARY']
-        
-        pygame.draw.rect(screen, toggle_bg, self.toggle_rect, border_radius=3)
-        pygame.draw.rect(screen, COLORS['PANEL_BORDER'], self.toggle_rect, 1, border_radius=3)
-        
-        toggle_text_surface = self.font_manager.render_text(toggle_text, 'TINY', toggle_text_color)
-        text_rect = toggle_text_surface.get_rect(center=self.toggle_rect.center)
-        screen.blit(toggle_text_surface, text_rect)
-        
-        # 如果未启用，不绘制热图，只显示开关
+
+        if not skip_embedded_toggle:
+            # 地图右上角图例（含开关）——保留作兼容/调试
+            legend_rect = pygame.Rect(legend_x, legend_y, 140, 90)
+            pygame.draw.rect(screen, COLORS['CHART_BG'], legend_rect)
+            pygame.draw.rect(screen, COLORS['PANEL_BORDER'], legend_rect, 1)
+
+            agent_type_label = "IQL/QMIX"
+            if self.q_maps:
+                for agent_type in self.q_maps.keys():
+                    agent_type_label = 'IQL' if 'iql' in agent_type else 'QMIX'
+                    break
+
+            title_text = self.font_manager.render_text(
+                f"Q-Value Heatmap ({agent_type_label})", 'TINY', COLORS['TEXT_PRIMARY']
+            )
+            screen.blit(title_text, (legend_x + 5, legend_y + 5))
+
+            toggle_x = legend_x + 5
+            toggle_y = legend_y + 20
+            toggle_width = 130
+            toggle_height = 20
+            self.toggle_rect = pygame.Rect(toggle_x, toggle_y, toggle_width, toggle_height)
+
+            mouse_pos = pygame.mouse.get_pos()
+            if self.toggle_rect.collidepoint(mouse_pos):
+                toggle_bg = COLORS['BUTTON_HOVER']
+            else:
+                toggle_bg = COLORS['BUTTON_NORMAL']
+
+            if self.enabled:
+                toggle_text = "● Hide Heatmap"
+                toggle_text_color = COLORS['SUCCESS']
+            else:
+                toggle_text = "○ Show Heatmap"
+                toggle_text_color = COLORS['TEXT_SECONDARY']
+
+            pygame.draw.rect(screen, toggle_bg, self.toggle_rect, border_radius=3)
+            pygame.draw.rect(screen, COLORS['PANEL_BORDER'], self.toggle_rect, 1, border_radius=3)
+
+            toggle_text_surface = self.font_manager.render_text(toggle_text, 'TINY', toggle_text_color)
+            text_rect = toggle_text_surface.get_rect(center=self.toggle_rect.center)
+            screen.blit(toggle_text_surface, text_rect)
+
         if not self.enabled or not self.q_maps:
             return
-        
+
         try:
             # 选择第一个可用的Q值热图
             q_map = None
@@ -986,26 +1008,26 @@ class QValueHeatmapPanel:
                     agent_type_label = 'IQL' if 'iql' in agent_type else 'QMIX'
                     current_agent_type = agent_type
                     break
-            
+
             if q_map is None:
                 return
-            
+
             # 检查缓存是否有效
-            cache_valid = (self.cached_overlay is not None and 
+            cache_valid = (self.cached_overlay is not None and
                           self.cached_q_map is not None and
                           np.array_equal(self.cached_q_map, q_map) and
                           self.cached_agent_type == current_agent_type)
-            
+
             if not cache_valid:
                 # 重新计算并缓存overlay
                 self._rebuild_overlay(q_map, grid_size, cell_size)
                 self.cached_q_map = q_map.copy()
                 self.cached_agent_type = current_agent_type
-            
+
             # 使用缓存的overlay绘制
             if self.cached_overlay is not None:
                 screen.blit(self.cached_overlay, (env_x, env_y))
-            
+
             # 颜色条和数值标签（仅在启用且有数据时显示）
             if self.enabled and self.q_maps:
                 bar_width = 120
@@ -1024,8 +1046,7 @@ class QValueHeatmapPanel:
                         (bar_x + i, bar_y),
                         (bar_x + i, bar_y + bar_height)
                     )
-                
-                # 数值标签（使用缓存的值）
+
                 q_min = getattr(self, 'cached_q_min', 0.0)
                 q_max = getattr(self, 'cached_q_max', 0.0)
                 min_text = self.font_manager.render_text(
@@ -1036,7 +1057,7 @@ class QValueHeatmapPanel:
                 )
                 screen.blit(min_text, (bar_x, bar_y + bar_height + 5))
                 screen.blit(max_text, (bar_x + bar_width - max_text.get_width(), bar_y + bar_height + 5))
-            
+
         except Exception as e:
             print(f"Error drawing Q-value heatmap: {e}")
     
@@ -3080,9 +3101,8 @@ class AcademicVisualizationSystem:
         self.q_value_heatmap = QValueHeatmapPanel(
             0, 0, 0, 0, self.font_manager  # 位置和大小在draw时动态确定
         )
-        
-        # Q值热图开关按钮（在Behavior视图的图例区域）
         self.q_heatmap_toggle_rect: Optional[pygame.Rect] = None
+        self._layout_q_heatmap_toggle_rect()
         
         # 网络状态面板（在Behavior视图中显示）
         network_state_y = self.charts_top + 220 + 12  # 在动作分布面板下方
@@ -3095,6 +3115,17 @@ class AcademicVisualizationSystem:
         )
         # 状态消息：在没有 IQL / QMIX 时，用于在行为视图中展示友好的英文提示
         self.behavior_status_message: Optional[str] = None
+    
+    def _layout_q_heatmap_toggle_rect(self) -> None:
+        """Pause/Reset 列右侧放置 Q-heatmap 开关，与 AcademicControlPanel._create_buttons 几何对齐。"""
+        cp = self.control_panel.rect
+        btn_left = cp.x + 15
+        btn_top = cp.y + 50
+        btn_w, btn_h = 180, 35
+        gap = 10
+        tw, th = btn_w, btn_h
+        self.q_heatmap_toggle_rect = pygame.Rect(btn_left + btn_w + gap, btn_top, tw, th)
+        self.q_value_heatmap.toggle_rect = self.q_heatmap_toggle_rect
     
     def get_screen_info(self) -> Tuple[int, int]:
         """Get screen dimensions"""
@@ -3393,33 +3424,37 @@ class AcademicVisualizationSystem:
                 if agents and len(agents) > 0:
                     self.simulation_renderer.draw_agents(screen, agents)
             
-            # Update and draw Q-value heatmap (overlay on environment) - only in behavior view
-            if self.active_view == "behavior":
-                simulation = simulation_data.get('simulation')
-                if simulation is not None:
-                    # Group agents by type
-                    agents_by_type: Dict[str, List[Any]] = {}
-                    for agent in simulation.agent_manager.agents:
-                        agent_type = agent.agent_type.value
-                        if agent_type not in agents_by_type:
-                            agents_by_type[agent_type] = []
-                        agents_by_type[agent_type].append(agent)
-                    
-                    environment = simulation.environment
-                    if environment is not None:
-                        # Q值热图在「运行中」和「暂停」两种状态下都允许持续更新：
-                        # - 运行中：跟随训练动态变化
-                        # - 暂停：在环境静止的前提下，逐步补全当前时刻的Q值图，然后稳定显示
-                        if self.q_value_heatmap.enabled and (is_running or is_paused):
-                            self.q_value_heatmap.update(agents_by_type, environment)
-                        # 绘制Q值热图和开关按钮（开关按钮始终显示）
-                        self.q_value_heatmap.draw(screen, self.grid_size, self.cell_size, env_x, env_y)
+            # Q值热图：任意视图下可更新/叠加；开关改绘在控制面板旁（非 Behavior 专属）
+            simulation = simulation_data.get('simulation')
+            if simulation is not None:
+                agents_by_type: Dict[str, List[Any]] = {}
+                for agent in simulation.agent_manager.agents:
+                    agent_type = agent.agent_type.value
+                    if agent_type not in agents_by_type:
+                        agents_by_type[agent_type] = []
+                    agents_by_type[agent_type].append(agent)
+
+                environment = simulation.environment
+                if environment is not None:
+                    if self.q_value_heatmap.enabled and (is_running or is_paused):
+                        self.q_value_heatmap.update(agents_by_type, environment)
+                    self.q_value_heatmap.draw(
+                        screen,
+                        self.grid_size,
+                        self.cell_size,
+                        env_x,
+                        env_y,
+                        skip_embedded_toggle=True,
+                    )
             
             # Prepare UI metrics
             ui_metrics = self._prepare_ui_metrics(simulation_data)
             
             # Draw control panel（基础统计）
             self.control_panel.draw(screen, ui_metrics)
+            # Q-heatmap 开关叠在控制面板之上（Pause/Reset 右侧）
+            if self.q_heatmap_toggle_rect is not None:
+                self.q_value_heatmap.draw_sidebar_toggle(screen, self.q_heatmap_toggle_rect)
 
             # 绘制视图 Tab
             self._draw_view_tabs(screen)
@@ -3920,22 +3955,22 @@ class AcademicVisualizationSystem:
                         self.active_view = view_id
                         return True
                 
+                # Q值热图开关（控制面板旁，任意视图）
+                if (
+                    self.q_heatmap_toggle_rect is not None
+                    and self.q_heatmap_toggle_rect.collidepoint(mouse_pos)
+                ):
+                    self.q_value_heatmap.enabled = not self.q_value_heatmap.enabled
+                    if not self.q_value_heatmap.enabled:
+                        self.q_value_heatmap.cached_overlay = None
+                        self.q_value_heatmap.q_maps.clear()
+                    return True
+                
                 # 处理 Experiment 视图事件
                 if self.active_view == "experiment":
                     if self.experiment_panel:
                         # Pass simulation to panel for config application
                         if self.experiment_panel.handle_event(event, simulation):
-                            return True
-                
-                # 处理Q值热图开关（仅在Behavior视图）
-                if self.active_view == "behavior":
-                    if hasattr(self.q_value_heatmap, 'toggle_rect') and self.q_value_heatmap.toggle_rect is not None:
-                        if self.q_value_heatmap.toggle_rect.collidepoint(mouse_pos):
-                            self.q_value_heatmap.enabled = not self.q_value_heatmap.enabled
-                            # 如果关闭，清除缓存
-                            if not self.q_value_heatmap.enabled:
-                                self.q_value_heatmap.cached_overlay = None
-                                self.q_value_heatmap.q_maps.clear()
                             return True
                 
             # 未命中 Tab 和开关，则交给控制面板处理
