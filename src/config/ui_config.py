@@ -42,9 +42,9 @@ class ColorScheme:
     
     # Agent Type Colors - Categorical Color Scheme (Colorblind-friendly)
     # Based on Tableau and ColorBrewer palettes
-    AGENT_RULE_BASED = (31, 119, 180)      # Blue
+    AGENT_RULE_BASED = (44, 160, 44)       # Green (与 QMIX 原色对调，便于地图上区分)
     AGENT_IQL = (255, 127, 14)             # Orange
-    AGENT_QMIX = (44, 160, 44)            # Green
+    AGENT_QMIX = (31, 119, 180)             # Blue（地图上 QMIX 显示为蓝）
     AGENT_CONSERVATIVE = (214, 39, 40)     # Red
     AGENT_EXPLORATORY = (148, 103, 189)   # Purple
     AGENT_ADAPTIVE = (140, 86, 75)        # Brown
@@ -232,6 +232,9 @@ class UIConfig:
 
 # 向后兼容：导出COLORS字典
 COLORS = ColorScheme.to_dict()
+
+# 地图智能体绘制：糖 > 阈值时的内圈“高糖”标记（暂关，改 True 可恢复）
+MAP_AGENT_DRAW_HIGH_SUGAR_MARKER = False
 
 # 向后兼容：导出FONT_SIZES
 FONT_SIZES = FontConfig().to_dict()

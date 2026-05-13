@@ -533,7 +533,7 @@ class BaseAgent(ABC):
                     return {'sugar': float(result), 'spice': 0.0, 'hazard': 0.0, 'net_gain': float(result)}
             return {'sugar': 0.0, 'spice': 0.0, 'hazard': 0.0, 'net_gain': 0.0}
         except Exception as e:
-            self.logger.warning(f"智能体 {self.agent_id} 收获资源失败: {e}")
+            self.logger.warning(f"agent {self.agent_id} harvest failed: {e}")
             return {'sugar': 0.0, 'spice': 0.0, 'hazard': 0.0, 'net_gain': 0.0}
     
     def _update_metrics(self) -> None:
@@ -577,9 +577,9 @@ class BaseAgent(ABC):
         from src.config.ui_config import COLORS
         
         color_map = {
-            AgentType.RULE_BASED: COLORS.get('AGENT_RULE_BASED', (31, 119, 180)),
+            AgentType.RULE_BASED: COLORS.get('AGENT_RULE_BASED', (44, 160, 44)),
             AgentType.IQL: COLORS.get('AGENT_IQL', (255, 127, 14)),
-            AgentType.QMIX: COLORS.get('AGENT_QMIX', (44, 160, 44)),
+            AgentType.QMIX: COLORS.get('AGENT_QMIX', (31, 119, 180)),
             AgentType.CONSERVATIVE: COLORS.get('AGENT_CONSERVATIVE', (214, 39, 40)),
             AgentType.EXPLORATORY: COLORS.get('AGENT_EXPLORATORY', (148, 103, 189)),
             AgentType.ADAPTIVE: COLORS.get('AGENT_ADAPTIVE', (140, 86, 75)),

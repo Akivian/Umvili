@@ -105,7 +105,7 @@ class AgentManager:
                 if not is_alive:
                     dead_agents.append(agent)
             except Exception as e:
-                logging.warning(f"智能体 {agent.agent_id} 更新失败: {e}")
+                logging.warning(f"Agent {agent.agent_id} update failed: {e}")
                 dead_agents.append(agent)
         
         # 移除死亡智能体
@@ -201,7 +201,10 @@ class MARLSimulation:
         self._frame_times: Deque[float] = deque(maxlen=60)
         self._last_frame_time = time.time()
         
-        logging.info(f"MARL模拟系统初始化完成: 网格大小={grid_size}, 智能体数量={len(self.agent_manager)}")
+        logging.info(
+            f"MARL simulation initialized: grid_size={grid_size}, "
+            f"agents={len(self.agent_manager)}"
+        )
     
     def _initialize_environment(self, env_config: Optional[Dict[str, Any]] = None) -> None:
         """
@@ -273,7 +276,7 @@ class MARLSimulation:
             # 创建默认智能体群体
             self._create_default_agents()
         
-        logging.info(f"初始化 {len(self.agent_manager)} 个智能体")
+        logging.info(f"Initialized {len(self.agent_manager)} agents")
     
     def _create_default_agents(self) -> None:
         """创建默认智能体群体 - 修复配置问题"""
@@ -329,34 +332,34 @@ class MARLSimulation:
             trainer: 训练器实例
         """
         self.marl_trainers[agent_type] = trainer
-        logging.info(f"注册训练器 for {agent_type}: {trainer.__class__.__name__}")
+        logging.info(f"Registered trainer for {agent_type}: {trainer.__class__.__name__}")
     
     def start(self) -> None:
         """启动模拟"""
         if self.state == SimulationState.READY:
             self.state = SimulationState.RUNNING
             self.start_time = time.time()
-            logging.info("模拟启动")
+            logging.info("Simulation started")
     
     def pause(self) -> None:
         """暂停模拟"""
         if self.state == SimulationState.RUNNING:
             self.state = SimulationState.PAUSED
-            logging.info("模拟暂停")
+            logging.info("Simulation paused")
         else:
-            logging.debug(f"尝试暂停但状态不是RUNNING: {self.state.value}")
+            logging.debug(f"Pause ignored: state is not RUNNING (state={self.state.value})")
     
     def resume(self) -> None:
         """恢复模拟"""
         if self.state == SimulationState.PAUSED:
             self.state = SimulationState.RUNNING
-            logging.info("模拟恢复")
+            logging.info("Simulation resumed")
         elif self.state == SimulationState.READY:
             # 如果处于READY状态，直接启动
             self.state = SimulationState.RUNNING
-            logging.info("从READY状态启动模拟")
+            logging.info("Simulation started from READY")
         else:
-            logging.debug(f"尝试恢复但状态不是PAUSED或READY: {self.state.value}")
+            logging.debug(f"Resume ignored: state is not PAUSED or READY (state={self.state.value})")
     
     def reset(self, new_config: Optional[Dict[str, Any]] = None) -> None:
         """
@@ -376,7 +379,7 @@ class MARLSimulation:
                 - hazard_target_fraction: Hazard 目标覆盖比例
                 - resource_enabled: 资源开关字典 {'sugar': bool, 'spice': bool, 'hazard': bool}
         """
-        logging.info("重置模拟")
+        logging.info("Simulation reset")
         
         # 暂停当前模拟（如果正在运行）
         was_running = self.state == SimulationState.RUNNING
@@ -430,7 +433,7 @@ class MARLSimulation:
                     except:
                         pass
         self.marl_trainers.clear()
-        logging.info("已清空旧训练器，等待重新创建")
+        logging.info("Cleared old trainers; waiting for recreation")
         
         # 清空智能体管理器（这会删除所有旧智能体）
         self.agent_manager.clear()
@@ -461,7 +464,10 @@ class MARLSimulation:
             self.state = SimulationState.READY
         
         self.start_time = time.time()
-        logging.info(f"模拟重置完成: grid_size={self.grid_size}, agents={len(self.agent_manager)}, state={self.state.value}")
+        logging.info(
+            f"Simulation reset complete: grid_size={self.grid_size}, "
+            f"agents={len(self.agent_manager)}, state={self.state.value}"
+        )
     
     def _reset_agent_states(self) -> None:
         """
@@ -495,7 +501,7 @@ class MARLSimulation:
                     agent.training_step = 0
                     
             except Exception as e:
-                logging.warning(f"重置智能体 {agent.agent_id} 状态失败: {e}")
+                logging.warning(f"Failed to reset agent {agent.agent_id} state: {e}")
     
     def _recreate_trainers(self) -> None:
         """
@@ -593,21 +599,21 @@ class MARLSimulation:
                             agent.last_action = None
                             
                     except Exception as e:
-                        logging.warning(f"绑定训练器到智能体 {agent.agent_id} 失败: {e}")
+                        logging.warning(f"Failed to bind trainer to agent {agent.agent_id}: {e}")
                 
                 # 同步网络参数到所有 QMIX 智能体（确保所有智能体使用相同的网络）
                 if hasattr(qmix_trainer, 'sync_agent_networks'):
                     try:
                         qmix_trainer.sync_agent_networks(qmix_agents)
                     except Exception as e:
-                        logging.warning(f"同步网络参数失败: {e}")
+                        logging.warning(f"Failed to sync network parameters: {e}")
                 
                 # 在模拟中注册训练器
                 self.register_trainer("qmix", qmix_trainer)
-                logging.info(f"重新创建并注册 QMIX 训练器，绑定到 {num_agents} 个智能体")
+                logging.info(f"Recreated and registered QMIX trainer for {num_agents} agents")
         
         except Exception as e:
-            logging.error(f"重新创建训练器失败: {e}", exc_info=True)
+            logging.error(f"Failed to recreate trainers: {e}", exc_info=True)
             # 即使训练器创建失败，也不应该阻止模拟运行
             # 只是没有训练功能而已
     
@@ -657,7 +663,7 @@ class MARLSimulation:
             return True
             
         except Exception as e:
-            logging.error(f"模拟更新失败: {e}")
+            logging.error(f"Simulation update failed: {e}")
             return False
     
     def _update_environment(self) -> None:
@@ -678,7 +684,7 @@ class MARLSimulation:
                 if not self.resource_enabled.get('hazard', True):
                     self.environment.hazard_map.fill(0.0)
         except Exception as e:
-            logging.error(f"环境更新失败: {e}", exc_info=True)
+            logging.error(f"Environment update failed: {e}", exc_info=True)
     
     def _update_agents(self) -> None:
         """更新所有智能体，并记录耗时"""
@@ -698,12 +704,12 @@ class MARLSimulation:
             try:
                 # 验证训练器是否有效
                 if trainer is None:
-                    logging.warning(f"{agent_type} 训练器为 None，跳过")
+                    logging.warning(f"{agent_type} trainer is None, skipping")
                     continue
                 
                 # 验证训练器是否有必要的方法
                 if not hasattr(trainer, 'train_step'):
-                    logging.warning(f"{agent_type} 训练器缺少 train_step 方法，跳过")
+                    logging.warning(f"{agent_type} trainer has no train_step, skipping")
                     continue
                 
                 # 检查训练器是否引用了已删除的智能体（通过检查 num_agents）
@@ -711,8 +717,8 @@ class MARLSimulation:
                     actual_agents = len(self.agent_manager.get_agents_by_type(agent_type))
                     if trainer.num_agents != actual_agents:
                         logging.warning(
-                            f"{agent_type} 训练器的智能体数量 ({trainer.num_agents}) "
-                            f"与实际数量 ({actual_agents}) 不匹配，跳过训练"
+                            f"{agent_type} trainer num_agents ({trainer.num_agents}) "
+                            f"!= alive agents ({actual_agents}), skipping training"
                         )
                         continue
                 
@@ -720,7 +726,7 @@ class MARLSimulation:
                 trainer.train_step()
                 
             except Exception as e:
-                logging.warning(f"{agent_type} 训练失败: {e}")
+                logging.warning(f"{agent_type} training failed: {e}")
                 # 如果训练器持续失败，可以考虑移除它
                 # 但这里只记录警告，不自动移除，避免频繁创建/删除训练器
     
@@ -870,9 +876,9 @@ class MARLSimulation:
                                     'recent_reward': recent_reward,
                                 })
                         except Exception as e:
-                            logging.debug(f"处理智能体 {agent.agent_id} 奖励统计失败: {e}")
+                            logging.debug(f"Reward stats for agent {agent.agent_id} failed: {e}")
             except Exception as e:
-                logging.debug(f"收集智能体 {agent.agent_id} 训练信息失败: {e}")
+                logging.debug(f"Collect training info for agent {agent.agent_id} failed: {e}")
                 continue
         
         # 从训练器收集统计信息（QMIX等集中式训练）
@@ -894,7 +900,7 @@ class MARLSimulation:
                     }
                     type_metrics[agent_type].append(trainer_info)
             except Exception as e:
-                logging.debug(f"收集训练器 {agent_type} 统计信息失败: {e}")
+                logging.debug(f"Collect trainer stats for {agent_type} failed: {e}")
                 continue
         
         # 聚合每个类型的指标

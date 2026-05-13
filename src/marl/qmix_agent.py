@@ -159,7 +159,7 @@ class QMIXAgent(LearningAgent):
         )
         self.reward_calculator = RewardCalculator(reward_config)
         
-        self.logger.info(f"初始化QMIX智能体 {self.name}")
+        self.logger.info(f"QMIX agent initialized: {self.name}")
     
     def set_trainer(self, trainer: Any) -> None:
         """
@@ -169,7 +169,7 @@ class QMIXAgent(LearningAgent):
             trainer: QMIX训练器实例
         """
         self.trainer = trainer
-        self.logger.info(f"智能体 {self.agent_id} 绑定训练器")
+        self.logger.info(f"agent {self.agent_id} trainer bound")
 
     def set_networks(self, q_network: nn.Module, target_q_network: nn.Module) -> None:
         """
@@ -181,7 +181,7 @@ class QMIXAgent(LearningAgent):
         """
         self.q_network = q_network
         self.target_q_network = target_q_network
-        self.logger.debug(f"智能体 {self.agent_id} 网络已设置")
+        self.logger.debug(f"agent {self.agent_id} networks set")
     
     def decide_action(self, observation: ObservationSpace) -> Tuple[int, int]:
         """
@@ -201,7 +201,7 @@ class QMIXAgent(LearningAgent):
         if random.random() < self.epsilon:
             # 随机探索
             action_idx = random.randint(0, self.action_dim - 1)
-            self.logger.debug(f"QMIX智能体 {self.agent_id} 随机探索: 动作 {action_idx}")
+            self.logger.debug(f"QMIX agent {self.agent_id} explore random action_idx={action_idx}")
         else:
             # 利用Q值选择最佳动作
             if self.q_network is not None:
@@ -210,12 +210,16 @@ class QMIXAgent(LearningAgent):
                     q_values = self.q_network(state_tensor)
                     action_idx = q_values.argmax().item()
                 
-                self.logger.debug(f"QMIX智能体 {self.agent_id} 利用: "
-                                f"动作 {action_idx}, Q值 {q_values.max().item():.3f}")
+                self.logger.debug(
+                    f"QMIX agent {self.agent_id} exploit action_idx={action_idx}, "
+                    f"max_Q={q_values.max().item():.3f}"
+                )
             else:
                 # 网络未初始化，随机选择
                 action_idx = random.randint(0, self.action_dim - 1)
-                self.logger.debug(f"QMIX智能体 {self.agent_id} 网络未初始化，随机选择: 动作 {action_idx}")
+                self.logger.debug(
+                    f"QMIX agent {self.agent_id} Q-network not initialized; random action_idx={action_idx}"
+                )
         
         # 转换为环境动作
         action = self._action_idx_to_position(action_idx)
@@ -299,9 +303,11 @@ class QMIXAgent(LearningAgent):
                 # 发送给训练器
                 if self.trainer and hasattr(self.trainer, 'store_individual_experience'):
                     self.trainer.store_individual_experience(self.pending_experience)
-                    self.logger.debug(f"智能体 {self.agent_id} 发送经验到训练器, 奖励: {reward:.3f}")
+                    self.logger.debug(f"agent {self.agent_id} push experience to trainer reward={reward:.3f}")
                 else:
-                    self.logger.warning(f"智能体 {self.agent_id} 无法发送经验: 训练器未设置或方法不存在")
+                    self.logger.warning(
+                        f"agent {self.agent_id} cannot push experience: trainer missing or no store method"
+                    )
                 
                 self.pending_experience = None
             
@@ -315,7 +321,7 @@ class QMIXAgent(LearningAgent):
             return is_alive
             
         except Exception as e:
-            self.logger.error(f"QMIX智能体 {self.agent_id} 更新失败: {e}", exc_info=True)
+            self.logger.error(f"QMIX agent {self.agent_id} update failed: {e}", exc_info=True)
             # 更新失败时标记为死亡
             self.status = AgentStatus.DEAD
             return False
@@ -428,7 +434,7 @@ class QMIXAgent(LearningAgent):
             
             # 检查NaN和Inf
             if np.any(np.isnan(state)) or np.any(np.isinf(state)):
-                self.logger.warning(f"智能体 {self.agent_id} 状态包含NaN/Inf，已修复")
+                self.logger.warning(f"agent {self.agent_id} state had NaN/Inf; sanitized")
                 state = np.nan_to_num(state, nan=0.0, posinf=1.0, neginf=0.0)
             
             # 维度处理
@@ -464,7 +470,7 @@ class QMIXAgent(LearningAgent):
             return state
             
         except Exception as e:
-            self.logger.error(f"智能体 {self.agent_id} 状态处理失败: {e}", exc_info=True)
+            self.logger.error(f"agent {self.agent_id} _process_observation failed: {e}", exc_info=True)
             # 返回零向量作为后备
             return np.zeros(self.state_dim, dtype=np.float32)
 
@@ -522,7 +528,7 @@ class QMIXAgent(LearningAgent):
             
             # 检查NaN和Inf
             if np.any(np.isnan(global_state)) or np.any(np.isinf(global_state)):
-                self.logger.warning(f"智能体 {self.agent_id} 全局状态包含NaN/Inf，已修复")
+                self.logger.warning(f"agent {self.agent_id} global_state had NaN/Inf; sanitized")
                 global_state = np.nan_to_num(global_state, nan=0.0, posinf=1.0, neginf=0.0)
             
             # 确保维度一致性
@@ -535,7 +541,7 @@ class QMIXAgent(LearningAgent):
             return global_state
             
         except Exception as e:
-            self.logger.error(f"智能体 {self.agent_id} 获取全局状态失败: {e}", exc_info=True)
+            self.logger.error(f"agent {self.agent_id} _get_global_state failed: {e}", exc_info=True)
             # 返回零向量作为后备
             return np.zeros(self.state_dim, dtype=np.float32)
     
@@ -551,7 +557,7 @@ class QMIXAgent(LearningAgent):
         """
         # 验证动作索引有效性
         if not (0 <= action_idx < len(self.directions)):
-            self.logger.warning(f"无效动作索引: {action_idx}, 使用默认动作")
+            self.logger.warning(f"invalid action_idx={action_idx}; using default action")
             action_idx = 0  # 默认动作
         
         dx, dy = self.directions[action_idx]
@@ -561,7 +567,7 @@ class QMIXAgent(LearningAgent):
         new_y = (self.y + dy) % self.environment_size
         
         # 记录移动决策
-        self.logger.debug(f"智能体 {self.agent_id} 从 ({self.x}, {self.y}) 移动到 ({new_x}, {new_y})")
+        self.logger.debug(f"agent {self.agent_id} move ({self.x}, {self.y}) -> ({new_x}, {new_y})")
         
         return new_x, new_y
     
@@ -633,7 +639,7 @@ class QMIXAgent(LearningAgent):
             
             return q_map
         except Exception as e:
-            self.logger.error(f"获取Q值热图失败: {e}", exc_info=True)
+            self.logger.error(f"get_q_value_map failed: {e}", exc_info=True)
             # 恢复位置
             self.x, self.y = original_x, original_y
             return np.zeros((self.environment_size, self.environment_size), dtype=np.float32)
@@ -690,7 +696,7 @@ class QMIXAgent(LearningAgent):
                 'action_dim': self.action_dim
             }
         except Exception as e:
-            self.logger.error(f"获取网络状态失败: {e}", exc_info=True)
+            self.logger.error(f"get_network_state failed: {e}", exc_info=True)
             return {
                 'hidden_activations': [],
                 'q_values': np.zeros(self.action_dim),
@@ -752,4 +758,4 @@ class QMIXAgent(LearningAgent):
         self._last_sugar = self.sugar
         self._last_position = (self.x, self.y)
         
-        self.logger.debug(f"QMIX智能体 {self.agent_id} 已重置")
+        self.logger.debug(f"QMIX agent {self.agent_id} reset")

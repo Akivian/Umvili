@@ -262,7 +262,7 @@ class RuleBasedAgent(BaseAgent):
                 return 0.0
                 
         except Exception as e:
-            self.logger.warning(f"智能体 {self.agent_id} 估计糖量失败: {e}")
+            self.logger.warning(f"agent {self.agent_id} estimate_sugar_at failed: {e}")
             return 0.0
 
     def get_detailed_metrics(self) -> Dict[str, Any]:

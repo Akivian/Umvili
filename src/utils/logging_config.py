@@ -43,6 +43,17 @@ def setup_logging(
     stream_handler.setFormatter(formatter)
     root_logger.addHandler(stream_handler)
 
+    # Debug 视图终端：与控制台相同格式的环形缓冲（失败时忽略，不影响主日志）
+    try:
+        from src.utils.ui_log_buffer import UILogHandler
+
+        ui_handler = UILogHandler()
+        ui_handler.setFormatter(formatter)
+        ui_handler.setLevel(level)
+        root_logger.addHandler(ui_handler)
+    except Exception:
+        pass
+
     # 文件输出
     if log_file:
         try:
@@ -52,7 +63,7 @@ def setup_logging(
             file_handler.setFormatter(formatter)
             root_logger.addHandler(file_handler)
         except OSError as exc:
-            root_logger.warning(f"无法写入日志文件 {log_file}: {exc}")
+            root_logger.warning(f"Cannot write log file {log_file}: {exc}")
 
     root_logger.propagate = propagate
 

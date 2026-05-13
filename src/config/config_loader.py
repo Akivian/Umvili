@@ -52,26 +52,26 @@ class ConfigLoader:
         try:
             config_path = Path(config_path)
             if not config_path.exists():
-                logger.warning(f"配置文件不存在: {config_path}")
+                logger.warning(f"Config file not found: {config_path}")
                 return None
             
             with open(config_path, 'r', encoding='utf-8') as f:
                 if config_path.suffix.lower() in ['.yaml', '.yml']:
                     if not YAML_AVAILABLE:
-                        logger.error("YAML支持不可用，请安装pyyaml: pip install pyyaml")
+                        logger.error("YAML not available; install pyyaml: pip install pyyaml")
                         return None
                     config_data = yaml.safe_load(f)
                 elif config_path.suffix.lower() == '.json':
                     config_data = json.load(f)
                 else:
-                    logger.error(f"不支持的配置文件格式: {config_path.suffix}")
+                    logger.error(f"Unsupported config file extension: {config_path.suffix}")
                     return None
             
-            logger.info(f"成功从文件加载配置: {config_path}")
+            logger.info(f"Loaded config from file: {config_path}")
             return config_data
             
         except Exception as e:
-            logger.error(f"加载配置文件失败: {config_path}: {e}", exc_info=True)
+            logger.error(f"Failed to load config file {config_path}: {e}", exc_info=True)
             return None
     
     @staticmethod
@@ -96,7 +96,7 @@ class ConfigLoader:
             with open(config_path, 'w', encoding='utf-8') as f:
                 if format.lower() == 'yaml' or config_path.suffix.lower() in ['.yaml', '.yml']:
                     if not YAML_AVAILABLE:
-                        logger.error("YAML支持不可用，使用JSON格式")
+                        logger.error("YAML not available; saving as JSON instead")
                         format = 'json'
                     
                     if YAML_AVAILABLE:
@@ -107,11 +107,11 @@ class ConfigLoader:
                 else:
                     json.dump(config_dict, f, indent=2, ensure_ascii=False)
             
-            logger.info(f"配置已保存到: {config_path}")
+            logger.info(f"Config saved to: {config_path}")
             return True
             
         except Exception as e:
-            logger.error(f"保存配置文件失败: {config_path}: {e}", exc_info=True)
+            logger.error(f"Failed to save config file {config_path}: {e}", exc_info=True)
             return False
     
     @staticmethod

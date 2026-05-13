@@ -102,7 +102,7 @@ class MARLApplication:
         self.fps_history: list[float] = []
         self.max_fps_history_size = 100
         
-        logger.info("MARL应用程序对象创建完成")
+        logger.info("MARL application object created")
     
     def _load_config(self, config: Optional[Dict[str, Any]]) -> None:
         """
@@ -154,7 +154,9 @@ class MARLApplication:
         # 额外的业务逻辑验证
         max_agents = self.sim_config.grid_size * 2
         if self.sim_config.initial_agents > max_agents:
-            logger.warning(f"智能体数量 {self.sim_config.initial_agents} 超过推荐值 {max_agents}")
+            logger.warning(
+                f"initial_agents {self.sim_config.initial_agents} exceeds recommended {max_agents}"
+            )
             # 注意：dataclass是只读的，这里只记录警告，实际调整需要在创建配置时进行
     
     def initialize(self) -> bool:
@@ -165,7 +167,7 @@ class MARLApplication:
             初始化是否成功
         """
         try:
-            logger.info("开始初始化应用程序组件...")
+            logger.info("Initializing application components...")
             
             # 初始化Pygame
             if not self._initialize_pygame():
@@ -184,11 +186,11 @@ class MARLApplication:
                 return False
             
             self.state = ApplicationState.READY
-            logger.info("应用程序初始化完成")
+            logger.info("Application initialization complete")
             return True
             
         except Exception as e:
-            logger.error(f"初始化失败: {e}", exc_info=True)
+            logger.error(f"Initialization failed: {e}", exc_info=True)
             self.state = ApplicationState.ERROR
             return False
     
@@ -200,14 +202,14 @@ class MARLApplication:
             
             # 检查Pygame是否成功初始化
             if not pygame.get_init():
-                logger.error("Pygame初始化失败")
+                logger.error("Pygame initialization failed")
                 return False
             
-            logger.info("Pygame初始化成功")
+            logger.info("Pygame initialized successfully")
             return True
             
         except Exception as e:
-            logger.error(f"Pygame初始化异常: {e}", exc_info=True)
+            logger.error(f"Pygame initialization error: {e}", exc_info=True)
             return False
     
     def _create_simulation(self) -> bool:
@@ -218,7 +220,7 @@ class MARLApplication:
             创建是否成功
         """
         try:
-            logger.info(f"创建模拟实例 (类型: {self.app_config.simulation_type})")
+            logger.info(f"Creating simulation (type: {self.app_config.simulation_type})")
             
             # 根据类型创建不同的模拟
             sim = self._create_simulation_by_type()
@@ -227,11 +229,11 @@ class MARLApplication:
             self._apply_simulation_config(sim)
             
             self.simulation = sim
-            logger.info(f"模拟实例创建成功: {sim}")
+            logger.info(f"Simulation created: {sim}")
             return True
             
         except Exception as e:
-            logger.error(f"创建模拟实例失败: {e}", exc_info=True)
+            logger.error(f"Failed to create simulation: {e}", exc_info=True)
             return False
     
     def _create_simulation_by_type(self) -> MARLSimulation:
@@ -275,10 +277,10 @@ class MARLApplication:
         """
         try:
             if self.simulation is None:
-                logger.error("无法创建可视化系统：模拟实例未初始化")
+                logger.error("Cannot create visualization: simulation not initialized")
                 return False
             
-            logger.info("创建可视化系统...")
+            logger.info("Creating visualization system...")
             
             grid_size = getattr(getattr(self.simulation, 'environment', None), 'size', None) \
                 or getattr(self.simulation, 'grid_size', self.sim_config.grid_size)
@@ -301,11 +303,11 @@ class MARLApplication:
                 cell_size=cell_size
             )
             
-            logger.info("可视化系统创建成功")
+            logger.info("Visualization system created")
             return True
             
         except Exception as e:
-            logger.error(f"创建可视化系统失败: {e}", exc_info=True)
+            logger.error(f"Failed to create visualization: {e}", exc_info=True)
             return False
     
     def _create_display(self) -> bool:
@@ -317,7 +319,7 @@ class MARLApplication:
         """
         try:
             if self.visualization_system is None:
-                logger.error("无法创建显示窗口：可视化系统未初始化")
+                logger.error("Cannot create display window: visualization not initialized")
                 return False
             
             screen_info = self.visualization_system.get_screen_info()
@@ -337,17 +339,17 @@ class MARLApplication:
             self.screen = pygame.display.set_mode((width, height), flags)
             
             if self.screen is None:
-                logger.error("无法创建显示窗口")
+                logger.error("Failed to create display window")
                 return False
             
             # 创建时钟对象
             self.clock = pygame.time.Clock()
             
-            logger.info(f"显示窗口创建成功: {width}x{height}")
+            logger.info(f"Display window created: {width}x{height}")
             return True
             
         except Exception as e:
-            logger.error(f"创建显示窗口失败: {e}", exc_info=True)
+            logger.error(f"Failed to create display window: {e}", exc_info=True)
             return False
     
     def run(self) -> int:
@@ -358,11 +360,11 @@ class MARLApplication:
             退出代码 (0表示成功，非0表示错误)
         """
         if self.state != ApplicationState.READY:
-            logger.error(f"应用程序未就绪，当前状态: {self.state.value}")
+            logger.error(f"Application not ready, state: {self.state.value}")
             return 1
         
         if self.simulation is None or self.visualization_system is None or self.screen is None:
-            logger.error("核心组件未初始化")
+            logger.error("Core components not initialized")
             return 1
         
         # 启动模拟
@@ -372,7 +374,7 @@ class MARLApplication:
             self.state = ApplicationState.RUNNING
             self.start_time = pygame.time.get_ticks() / 1000.0
             
-            logger.info("开始主循环")
+            logger.info("Starting main loop")
             
             # 主循环
             while self.running:
@@ -383,10 +385,10 @@ class MARLApplication:
             return 0
             
         except KeyboardInterrupt:
-            logger.info("用户中断程序")
+            logger.info("User interrupted (KeyboardInterrupt)")
             return 0
         except Exception as e:
-            logger.error(f"主循环异常: {e}", exc_info=True)
+            logger.error(f"Main loop error: {e}", exc_info=True)
             self.state = ApplicationState.ERROR
             return 1
         finally:
@@ -420,7 +422,7 @@ class MARLApplication:
             return None
             
         except Exception as e:
-            logger.error(f"帧处理异常: {e}", exc_info=True)
+            logger.error(f"Frame handling error: {e}", exc_info=True)
             return 1
     
     def _handle_events(self) -> bool:
@@ -434,7 +436,7 @@ class MARLApplication:
             for event in pygame.event.get():
                 # 退出事件
                 if event.type == pygame.QUIT:
-                    logger.info("收到退出事件")
+                    logger.info("Quit event received")
                     return False
                 
                 # 将事件传递给可视化系统
@@ -450,7 +452,7 @@ class MARLApplication:
             return True
             
         except Exception as e:
-            logger.error(f"事件处理异常: {e}", exc_info=True)
+            logger.error(f"Event handling error: {e}", exc_info=True)
             return True  # 继续运行，不因事件处理错误而退出
     
     def _handle_keydown(self, event: pygame.event.Event) -> bool:
@@ -474,22 +476,22 @@ class MARLApplication:
                 if self.simulation.state == SimulationState.RUNNING:
                     self.simulation.pause()
                     self.state = ApplicationState.PAUSED
-                    logger.info("模拟已暂停")
+                    logger.info("Simulation paused")
                 else:
                     self.simulation.resume()
                     self.state = ApplicationState.RUNNING
-                    logger.info("模拟已恢复")
+                    logger.info("Simulation resumed")
             
             # R键：重置
             elif key == pygame.K_r:
-                logger.info("重置模拟")
+                logger.info("Simulation reset")
                 self.simulation.reset()
                 self.frame_count = 0
                 self.start_time = pygame.time.get_ticks() / 1000.0
             
             # ESC键：退出
             elif key == pygame.K_ESCAPE:
-                logger.info("用户请求退出")
+                logger.info("User requested exit")
                 return False
             
             # F键：切换全屏（可选功能）
@@ -499,7 +501,7 @@ class MARLApplication:
             return True
             
         except Exception as e:
-            logger.error(f"键盘事件处理异常: {e}", exc_info=True)
+            logger.error(f"Keyboard event error: {e}", exc_info=True)
             return True
     
     def _toggle_fullscreen(self) -> None:
@@ -525,9 +527,9 @@ class MARLApplication:
                 # 进入全屏
                 self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
             
-            logger.info("切换全屏模式")
+            logger.info("Toggling fullscreen")
         except Exception as e:
-            logger.warning(f"切换全屏失败: {e}")
+            logger.warning(f"Fullscreen toggle failed: {e}")
     
     def _update(self) -> bool:
         """
@@ -543,16 +545,16 @@ class MARLApplication:
             # 只在运行状态时更新
             if self.simulation.state == SimulationState.RUNNING:
                 if not self.simulation.update():
-                    logger.warning("模拟更新返回False")
+                    logger.warning("Simulation update returned False")
                     # 检查是否需要停止
                     if self.simulation.state == SimulationState.STOPPED:
-                        logger.info("模拟已停止")
+                        logger.info("Simulation stopped")
                         return False
             
             return True
             
         except Exception as e:
-            logger.error(f"更新模拟失败: {e}", exc_info=True)
+            logger.error(f"Simulation update failed: {e}", exc_info=True)
             return False
     
     def _render(self) -> bool:
@@ -582,7 +584,7 @@ class MARLApplication:
             return True
             
         except Exception as e:
-            logger.error(f"渲染失败: {e}", exc_info=True)
+            logger.error(f"Render failed: {e}", exc_info=True)
             return False
     
     def _render_fps(self) -> None:
@@ -600,7 +602,7 @@ class MARLApplication:
             self.screen.blit(text_surface, (10, 10))
             
         except Exception as e:
-            logger.debug(f"渲染FPS失败: {e}")
+            logger.debug(f"FPS overlay render failed: {e}")
     
     def _update_performance_stats(self, dt: float) -> None:
         """更新性能统计"""
@@ -612,7 +614,7 @@ class MARLApplication:
     
     def _cleanup(self) -> None:
         """清理资源"""
-        logger.info("开始清理资源...")
+        logger.info("Cleaning up resources...")
         self.state = ApplicationState.SHUTTING_DOWN
         
         try:
@@ -629,10 +631,10 @@ class MARLApplication:
             # 清理Pygame
             pygame.quit()
             
-            logger.info("资源清理完成")
+            logger.info("Cleanup complete")
             
         except Exception as e:
-            logger.error(f"清理资源时出错: {e}", exc_info=True)
+            logger.error(f"Cleanup error: {e}", exc_info=True)
     
     def get_performance_stats(self) -> Dict[str, Any]:
         """
@@ -728,7 +730,7 @@ def main() -> int:
         
         # 初始化
         if not app.initialize():
-            logger.error("应用程序初始化失败")
+            logger.error("Application initialization failed")
             return 1
         
         # 运行
@@ -737,15 +739,15 @@ def main() -> int:
         # 输出性能统计
         if logger.isEnabledFor(logging.INFO):
             stats = app.get_performance_stats()
-            logger.info(f"性能统计: {stats}")
+            logger.info(f"Performance stats: {stats}")
         
         return exit_code
         
     except KeyboardInterrupt:
-        logger.info("程序被用户中断")
+        logger.info("Interrupted by user")
         return 0
     except Exception as e:
-        logger.critical(f"程序异常退出: {e}", exc_info=True)
+        logger.critical(f"Fatal error: {e}", exc_info=True)
         return 1
 
 

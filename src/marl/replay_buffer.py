@@ -102,7 +102,7 @@ class PriorityReplayBuffer:
         # 更新最大优先级
         self.max_priority = max(self.max_priority, priority)
         
-        self.logger.debug(f"经验已添加，缓冲区大小: {self.size}")
+        self.logger.debug(f"experience added, buffer size={self.size}")
     
     def sample(self, batch_size: int) -> Dict[str, Any]:
         """
@@ -223,7 +223,7 @@ class PriorityReplayBuffer:
         # 更新beta
         self.beta = min(1.0, self.beta + self.beta_increment)
         
-        self.logger.debug(f"采样 {batch_size} 条经验")
+        self.logger.debug(f"sampled batch_size={batch_size}")
         
         return batch
     
@@ -276,14 +276,14 @@ class MultiAgentReplayBuffer:
         """为指定智能体添加经验"""
         if agent_id not in self.buffers:
             self.buffers[agent_id] = PriorityReplayBuffer(self.capacity)
-            self.logger.info(f"为智能体 {agent_id} 创建新的经验缓冲区")
+            self.logger.info(f"created new per-agent buffer for agent_id={agent_id}")
         
         self.buffers[agent_id].add(experience)
     
     def sample(self, agent_id: int, batch_size: int) -> Optional[Dict[str, Any]]:
         """从指定智能体的缓冲区采样"""
         if agent_id not in self.buffers or len(self.buffers[agent_id]) == 0:
-            self.logger.warning(f"智能体 {agent_id} 的缓冲区为空或不存在")
+            self.logger.warning(f"agent {agent_id} buffer empty or missing")
             return None
         
         return self.buffers[agent_id].sample(batch_size)
@@ -297,7 +297,7 @@ class MultiAgentReplayBuffer:
                 if batch is not None:
                     batches[agent_id] = batch
         
-        self.logger.debug(f"从 {len(batches)} 个智能体采样经验")
+        self.logger.debug(f"sampled from {len(batches)} agent buffers")
         return batches
     
     def update_priorities(self, agent_id: int, indices: List[int], priorities: List[float]) -> None:
@@ -305,7 +305,7 @@ class MultiAgentReplayBuffer:
         if agent_id in self.buffers:
             self.buffers[agent_id].update_priorities(indices, priorities)
         else:
-            self.logger.warning(f"尝试更新不存在的智能体 {agent_id} 的优先级")
+            self.logger.warning(f"priority update for unknown agent_id={agent_id}")
     
     def get_agent_buffer(self, agent_id: int) -> Optional[PriorityReplayBuffer]:
         """获取指定智能体的缓冲区"""

@@ -24,8 +24,9 @@ from collections import deque
 import math
 from types import SimpleNamespace
 
-from src.config.ui_config import COLORS, FONT_SIZES
+from src.config.ui_config import COLORS, FONT_SIZES, MAP_AGENT_DRAW_HIGH_SUGAR_MARKER
 from src.config.simulation_config import SimulationConfig
+from src.utils.ui_log_buffer import get_ui_log_buffer_snapshot
 # 向后兼容：使用默认值
 GRID_SIZE = 80
 CELL_SIZE = 10
@@ -299,7 +300,7 @@ class MultiLineChart:
             COLORS['CHART_LINE_4'],  # Red
             COLORS['CHART_LINE_5'],  # Purple
             COLORS['AGENT_IQL'],     # Orange (IQL)
-            COLORS['AGENT_QMIX'],    # Green (QMIX)
+            COLORS['AGENT_QMIX'],    # Blue (QMIX, matches agent map color)
         ]
         self.color_index = 0
         
@@ -2031,8 +2032,8 @@ class MARLSimulationRenderer:
             border_color = self._darken_color(base_color, 0.6)
             pygame.draw.circle(screen, border_color, (x, y), radius, 2)
             
-            # Draw status indicator (small inner circle for wealth)
-            if sugar > 20:
+            # Draw status indicator (small inner circle for wealth); toggle in ui_config
+            if MAP_AGENT_DRAW_HIGH_SUGAR_MARKER and sugar > 20:
                 inner_radius = max(2, radius // 3)
                 pygame.draw.circle(screen, COLORS.get('AGENT_WEALTHY', (0, 123, 255)), (x, y), inner_radius)
             
@@ -2148,18 +2149,18 @@ class AcademicControlPanel:
             f"FPS: {metrics.fps:.1f}",
         ]
         
-        col_spacing = 180
-        row_spacing = 22
+        col_spacing = 200
+        row_spacing = 28
         base_y = stats_start_y + title.get_height() + 12
         
         # Left column
         for i, stat in enumerate(stats_left):
-            text_surface = self.font_manager.render_text(stat, 'BODY', COLORS['TEXT_PRIMARY'])
+            text_surface = self.font_manager.render_text(stat, 'HEADING', COLORS['TEXT_PRIMARY'])
             screen.blit(text_surface, (self.rect.x + 20, base_y + i * row_spacing))
         
         # Right column
         for i, stat in enumerate(stats_right):
-            text_surface = self.font_manager.render_text(stat, 'BODY', COLORS['TEXT_PRIMARY'])
+            text_surface = self.font_manager.render_text(stat, 'HEADING', COLORS['TEXT_PRIMARY'])
             screen.blit(
                 text_surface,
                 (self.rect.x + 20 + col_spacing, base_y + i * row_spacing),
@@ -2290,6 +2291,10 @@ class ExperimentConfigPanel:
         # Apply & Reset button
         self.apply_button_rect: Optional[pygame.Rect] = None
         self.cancel_button_rect: Optional[pygame.Rect] = None
+        # 超参最后一行与 Apply/Cancel 之间的竖向间距（小于 section_spacing，避免按钮压出面板下沿）
+        self._gap_before_action_buttons: int = 12
+        # 按钮顶边距「QMIX 滑块行」rect 底边的最小像素，避免与最后两个滑条挤在一起
+        self._min_gap_last_sliders_to_buttons: int = 16
         
         # Initialize UI components
         self._initialize_ui_components()
@@ -2308,10 +2313,11 @@ class ExperimentConfigPanel:
         
         # 3. Algorithm Hyperparameters Panel
         current_y = self._create_hyperparameters_panel(current_y)
-        current_y += self.section_spacing
+        current_y += self._gap_before_action_buttons
         
         # 4. Action Buttons
         self._create_action_buttons(current_y)
+        self._clamp_action_buttons_to_panel()
         
         # Load current configuration if simulation is available
         if self.simulation:
@@ -2658,7 +2664,32 @@ class ExperimentConfigPanel:
             value_format="{:.2f}"
         )
         
-        return current_y + slider_height + 10
+        # 略小于原 10px，为底部按钮区腾出一点空间，仍低于滑条标签绘制区
+        return current_y + slider_height + 8
+    
+    def _clamp_action_buttons_to_panel(self) -> None:
+        """若 Apply/Cancel 超出面板下沿，则整体上移；顶边不低于 QMIX 滑条行底 + 最小间距。"""
+        if not self.apply_button_rect or not self.cancel_button_rect:
+            return
+        max_bottom = self.rect.bottom - self.padding['bottom']
+        overflow = self.apply_button_rect.bottom - max_bottom
+        if overflow <= 0:
+            return
+        qmix_lr = self.ui_components.get('qmix_learning_rate')
+        qmix_g = self.ui_components.get('qmix_gamma')
+        if not qmix_lr or not qmix_g:
+            self.apply_button_rect.y -= overflow
+            self.cancel_button_rect.y -= overflow
+            return
+        last_slider_bottom = max(qmix_lr.rect.bottom, qmix_g.rect.bottom)
+        min_top = last_slider_bottom + self._min_gap_last_sliders_to_buttons
+        h = self.apply_button_rect.height
+        naive_top = self.apply_button_rect.y - overflow
+        # 同时满足：顶 >= min_top，底 <= max_bottom（面板过矮时优先保 min_top，可能仍略压底框）
+        desired_top = max(min_top, min(naive_top, max_bottom - h))
+        delta = desired_top - self.apply_button_rect.y
+        self.apply_button_rect.y += delta
+        self.cancel_button_rect.y += delta
     
     def _create_action_buttons(self, start_y: int) -> None:
         """Create Apply & Reset and Cancel buttons"""
@@ -3016,6 +3047,11 @@ class AcademicVisualizationSystem:
             + self.view_tab_margin
         )
 
+        # Debug 视图：类终端日志滚动（与 logging 输出同源）
+        self._debug_log_skip_bottom = 0
+        self.debug_log_view_rect = pygame.Rect(0, 0, 0, 0)
+        self._terminal_font: Optional[pygame.font.Font] = None
+
         # Initialize charts with a vertical stack layout
         # 使用MultiLineChart统一图表显示方式（当前常规图表在UI中隐藏）
         self.charts = self._initialize_charts(panel_x, panel_width)
@@ -3182,10 +3218,24 @@ class AcademicVisualizationSystem:
             "debug": "Debug",
             "experiment": "Experiment",
         }
-        tab_width = 90
         tab_height = self.view_tab_height
         spacing = 4
-        x = panel_x
+        # 根据面板宽度收缩 Tab 宽度，避免 Tab 条整体越界
+        panel_margin = 10
+        inner_w = max(200, self.control_panel.rect.width - panel_margin * 2)
+        tab_width = 90
+        exp_extra = 14
+        for _ in range(40):
+            total = 0
+            for view_id in self.views:
+                w = tab_width + (exp_extra if view_id == "experiment" else 0)
+                total += w
+            total += spacing * (len(self.views) - 1)
+            if total <= inner_w:
+                break
+            tab_width = max(52, tab_width - 2)
+
+        x = panel_x + panel_margin
         # 放在 Simulation Statistics 区域下方、训练图表上方（不遮挡统计或图表）
         y = self.control_panel.rect.y + self.panel_top_reserved + 4
 
@@ -3194,8 +3244,7 @@ class AcademicVisualizationSystem:
 
         for view_id in self.views:
             label = tab_labels.get(view_id, view_id.title())
-            # Experiment 略宽，避免 BODY 字号下文字贴边
-            width = 104 if view_id == "experiment" else tab_width
+            width = tab_width + (exp_extra if view_id == "experiment" else 0)
             rect = pygame.Rect(x, y, width, tab_height)
             self.view_tabs.append((view_id, rect))
             self.view_tab_rects[view_id] = rect
@@ -3239,10 +3288,137 @@ class AcademicVisualizationSystem:
                 "experiment": "Experiment",
             }
             label = tab_labels.get(view_id, view_id.title())
-            # 仅放大 Tab 文案；按钮 rect 仍紧凑（文字可略超出框高，居中绘制）
             text_surface = self.font_manager.render_text(label, 'BODY', text_color)
-            text_rect = text_surface.get_rect(center=rect.center)
-            screen.blit(text_surface, text_rect)
+            if text_surface.get_width() > rect.width - 6:
+                text_surface = self.font_manager.render_text(label, 'TINY', text_color)
+            tx = rect.centerx - text_surface.get_width() // 2
+            ty = rect.centery - text_surface.get_height() // 2
+            pad = 3
+            tx = max(rect.left + pad, min(tx, rect.right - pad - text_surface.get_width()))
+            screen.blit(text_surface, (tx, ty))
+    
+    def _get_terminal_font(self) -> pygame.font.Font:
+        """等宽字体（Debug 日志正文，白底黑字、较大字号）。"""
+        target_pt = 15
+        if self._terminal_font is not None and getattr(self, "_terminal_font_pt", None) == target_pt:
+            return self._terminal_font
+        self._terminal_font = None
+        self._terminal_font_pt = target_pt
+        for name in (
+            "Consolas",
+            "Cascadia Mono",
+            "Lucida Console",
+            "Courier New",
+            "DejaVu Sans Mono",
+        ):
+            try:
+                f = pygame.font.SysFont(name, target_pt)
+                if f.get_height() > 0:
+                    self._terminal_font = f
+                    break
+            except Exception:
+                continue
+        if self._terminal_font is None:
+            self._terminal_font = pygame.font.Font(None, target_pt + 3)
+        return self._terminal_font
+
+    @staticmethod
+    def _wrap_log_text_for_width(text: str, font: pygame.font.Font, max_width: int) -> List[str]:
+        """按像素宽度折行（无空格长串按字符切分）。"""
+        if max_width <= 8:
+            return [text[:64] + ("…" if len(text) > 64 else "")]
+        lines: List[str] = []
+        current = ""
+        for ch in text:
+            trial = current + ch
+            if font.size(trial)[0] <= max_width:
+                current = trial
+            else:
+                if current:
+                    lines.append(current)
+                current = ch
+                if font.size(current)[0] > max_width:
+                    lines.append(current)
+                    current = ""
+        if current:
+            lines.append(current)
+        return lines if lines else [""]
+
+    def _draw_debug_log_panel(self, screen: pygame.Surface, panel_x: int, panel_width: int) -> None:
+        """在 Debug 视图绘制与控制台同源的 logging 输出（类终端：新日志在底部，滚轮上滚查看更早）。"""
+        margin_x = 8
+        margin_top = 4
+        margin_bottom = 10
+        inner_left = panel_x + margin_x
+        inner_w = max(40, panel_width - 2 * margin_x)
+        top = self.charts_top + margin_top
+        bottom = self.control_panel.rect.bottom - margin_bottom
+        height = bottom - top
+        if height < 48:
+            return
+
+        self.debug_log_view_rect = pygame.Rect(inner_left, top, inner_w, height)
+
+        font = self._get_terminal_font()
+        line_h = font.get_linesize() + 2
+        header_h = 26
+        pad = 8
+        body_top = self.debug_log_view_rect.y + header_h
+        body_h = max(0, self.debug_log_view_rect.height - header_h - pad)
+        visible_lines = max(1, body_h // line_h)
+
+        raw = get_ui_log_buffer_snapshot()
+        wrapped: List[str] = []
+        mw = max(20, inner_w - 2 * pad)
+        for row in raw:
+            wrapped.extend(self._wrap_log_text_for_width(row, font, mw))
+
+        n = len(wrapped)
+        max_skip = max(0, n - visible_lines)
+        self._debug_log_skip_bottom = max(0, min(self._debug_log_skip_bottom, max_skip))
+        end = n - self._debug_log_skip_bottom
+        start = max(0, end - visible_lines)
+        view_lines = wrapped[start:end]
+
+        # 白底黑字（与学术面板一致），细边框
+        bg = COLORS.get("PANEL_BG", (255, 255, 255))
+        pygame.draw.rect(screen, bg, self.debug_log_view_rect, border_radius=4)
+        pygame.draw.rect(screen, COLORS.get("PANEL_BORDER", (200, 200, 200)), self.debug_log_view_rect, 1, border_radius=4)
+
+        title_s = self.font_manager.render_text(
+            "Runtime log (logging)", "SMALL", COLORS["TEXT_PRIMARY"]
+        )
+        screen.blit(title_s, (self.debug_log_view_rect.x + pad, self.debug_log_view_rect.y + 5))
+
+        old_clip = screen.get_clip()
+        body_rect = pygame.Rect(
+            self.debug_log_view_rect.x + pad,
+            body_top,
+            self.debug_log_view_rect.width - 2 * pad,
+            body_h,
+        )
+        screen.set_clip(body_rect)
+
+        fg = COLORS.get("TEXT_PRIMARY", (33, 37, 41))
+        y = body_rect.y
+        for line in view_lines:
+            surf = font.render(line, True, fg)
+            screen.blit(surf, (body_rect.x, y))
+            y += line_h
+            if y > body_rect.bottom:
+                break
+
+        screen.set_clip(old_clip)
+
+        hint = self.font_manager.render_text(
+            "Scroll: mouse wheel  ·  tail pinned when at bottom",
+            "TINY",
+            COLORS.get("TEXT_SECONDARY", (108, 117, 125)),
+        )
+        hx = self.debug_log_view_rect.right - pad - hint.get_width()
+        hy = self.debug_log_view_rect.y + 5
+        hx = max(self.debug_log_view_rect.x + pad, hx)
+        screen.blit(hint, (hx, hy))
     
     def _initialize_charts(self, panel_x: int, panel_width: int) -> Dict[str, Any]:
         """
@@ -3562,19 +3738,9 @@ class AcademicVisualizationSystem:
                     self.experiment_panel.draw(screen)
             
             elif self.active_view == "debug":
-                # 调试视图：展示简单的性能信息，从 charts_top 开始绘制
-                if 'performance' in simulation_data:
-                    perf = simulation_data['performance']
-                    debug_lines = [
-                        f"FPS: {perf.get('fps', 0.0):.1f}",
-                        f"Step Time (ms): {perf.get('step_time', 0.0):.2f}",
-                        f"Agent Update Time (ms): {perf.get('agent_update_time', 0.0):.2f}",
-                        f"Memory (est. MB): {perf.get('memory_usage_mb', 0.0):.1f}",
-                    ]
-                    base_y = self.charts_top
-                    for i, line in enumerate(debug_lines):
-                        text = self.font_manager.render_text(line, 'SMALL', COLORS['TEXT_PRIMARY'])
-                        screen.blit(text, (self.control_panel.rect.x + 20, base_y + i * 22))
+                self._draw_debug_log_panel(
+                    screen, self.control_panel.rect.x, self.control_panel.rect.width
+                )
             
         except Exception as e:
             print(f"Visualization system drawing failed: {e}")
@@ -3946,6 +4112,14 @@ class AcademicVisualizationSystem:
     def handle_event(self, event: pygame.event.Event, simulation: Any) -> bool:
         """Handle events（视图 Tab 点击 + 控制面板按钮 + Q值热图开关）"""
         try:
+            if event.type == pygame.MOUSEWHEEL and self.active_view == "debug":
+                mouse_pos = pygame.mouse.get_pos()
+                if self.debug_log_view_rect.collidepoint(mouse_pos):
+                    # 与常见终端一致：向上滚轮（y>0）查看更早日志 → 增大距底部的跳过量
+                    delta = 3 if event.y > 0 else -3
+                    self._debug_log_skip_bottom = max(0, self._debug_log_skip_bottom + delta)
+                    return True
+
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_pos = event.pos
                 
