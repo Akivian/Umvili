@@ -26,7 +26,7 @@ from types import SimpleNamespace
 
 from src.config.ui_config import COLORS, FONT_SIZES, MAP_AGENT_DRAW_HIGH_SUGAR_MARKER
 from src.config.simulation_config import SimulationConfig
-from src.utils.ui_log_buffer import get_ui_log_buffer_snapshot
+from src.utils.ui_log_buffer import get_ui_log_channel_snapshots
 # 向后兼容：使用默认值
 GRID_SIZE = 80
 CELL_SIZE = 10
@@ -3047,8 +3047,13 @@ class AcademicVisualizationSystem:
             + self.view_tab_margin
         )
 
-        # Debug 视图：类终端日志滚动（与 logging 输出同源）
-        self._debug_log_skip_bottom = 0
+        # Debug 视图：三段子窗口竖向堆叠，各通道独立滚动
+        self._debug_log_skip_bottom: Dict[str, int] = {
+            "simulation": 0,
+            "iql": 0,
+            "qmix": 0,
+        }
+        self._debug_log_subview_rects: List[Tuple[str, pygame.Rect]] = []
         self.debug_log_view_rect = pygame.Rect(0, 0, 0, 0)
         self._terminal_font: Optional[pygame.font.Font] = None
 
@@ -3344,57 +3349,51 @@ class AcademicVisualizationSystem:
             lines.append(current)
         return lines if lines else [""]
 
-    def _draw_debug_log_panel(self, screen: pygame.Surface, panel_x: int, panel_width: int) -> None:
-        """在 Debug 视图绘制与控制台同源的 logging 输出（类终端：新日志在底部，滚轮上滚查看更早）。"""
-        margin_x = 8
-        margin_top = 4
-        margin_bottom = 10
-        inner_left = panel_x + margin_x
-        inner_w = max(40, panel_width - 2 * margin_x)
-        top = self.charts_top + margin_top
-        bottom = self.control_panel.rect.bottom - margin_bottom
-        height = bottom - top
-        if height < 48:
-            return
-
-        self.debug_log_view_rect = pygame.Rect(inner_left, top, inner_w, height)
-
-        font = self._get_terminal_font()
+    def _draw_debug_log_channel_strip(
+        self,
+        screen: pygame.Surface,
+        panel_rect: pygame.Rect,
+        channel: str,
+        title: str,
+        raw: List[str],
+        font: pygame.font.Font,
+    ) -> None:
+        """绘制单个 Debug 日志子窗口（白底黑字，底部对齐滚动）。"""
         line_h = font.get_linesize() + 2
-        header_h = 26
-        pad = 8
-        body_top = self.debug_log_view_rect.y + header_h
-        body_h = max(0, self.debug_log_view_rect.height - header_h - pad)
+        header_h = 22
+        pad = 6
+        body_top = panel_rect.y + header_h
+        body_h = max(0, panel_rect.height - header_h - pad)
         visible_lines = max(1, body_h // line_h)
 
-        raw = get_ui_log_buffer_snapshot()
+        mw = max(20, panel_rect.width - 2 * pad)
         wrapped: List[str] = []
-        mw = max(20, inner_w - 2 * pad)
         for row in raw:
             wrapped.extend(self._wrap_log_text_for_width(row, font, mw))
 
         n = len(wrapped)
         max_skip = max(0, n - visible_lines)
-        self._debug_log_skip_bottom = max(0, min(self._debug_log_skip_bottom, max_skip))
-        end = n - self._debug_log_skip_bottom
+        skip = self._debug_log_skip_bottom.get(channel, 0)
+        skip = max(0, min(skip, max_skip))
+        self._debug_log_skip_bottom[channel] = skip
+        end = n - skip
         start = max(0, end - visible_lines)
         view_lines = wrapped[start:end]
 
-        # 白底黑字（与学术面板一致），细边框
         bg = COLORS.get("PANEL_BG", (255, 255, 255))
-        pygame.draw.rect(screen, bg, self.debug_log_view_rect, border_radius=4)
-        pygame.draw.rect(screen, COLORS.get("PANEL_BORDER", (200, 200, 200)), self.debug_log_view_rect, 1, border_radius=4)
-
-        title_s = self.font_manager.render_text(
-            "Runtime log (logging)", "SMALL", COLORS["TEXT_PRIMARY"]
+        pygame.draw.rect(screen, bg, panel_rect, border_radius=4)
+        pygame.draw.rect(
+            screen, COLORS.get("PANEL_BORDER", (200, 200, 200)), panel_rect, 1, border_radius=4
         )
-        screen.blit(title_s, (self.debug_log_view_rect.x + pad, self.debug_log_view_rect.y + 5))
+
+        title_s = self.font_manager.render_text(title, "SMALL", COLORS["TEXT_PRIMARY"])
+        screen.blit(title_s, (panel_rect.x + pad, panel_rect.y + 4))
 
         old_clip = screen.get_clip()
         body_rect = pygame.Rect(
-            self.debug_log_view_rect.x + pad,
+            panel_rect.x + pad,
             body_top,
-            self.debug_log_view_rect.width - 2 * pad,
+            panel_rect.width - 2 * pad,
             body_h,
         )
         screen.set_clip(body_rect)
@@ -3409,16 +3408,49 @@ class AcademicVisualizationSystem:
                 break
 
         screen.set_clip(old_clip)
+        self._debug_log_subview_rects.append((channel, panel_rect))
 
-        hint = self.font_manager.render_text(
-            "Scroll: mouse wheel  ·  tail pinned when at bottom",
-            "TINY",
-            COLORS.get("TEXT_SECONDARY", (108, 117, 125)),
-        )
-        hx = self.debug_log_view_rect.right - pad - hint.get_width()
-        hy = self.debug_log_view_rect.y + 5
-        hx = max(self.debug_log_view_rect.x + pad, hx)
-        screen.blit(hint, (hx, hy))
+    def _draw_debug_log_panel(self, screen: pygame.Surface, panel_x: int, panel_width: int) -> None:
+        """Debug 视图：总高度内竖向切分为三个子窗口，分别显示 Simulation / IQL / QMIX 日志。"""
+        margin_x = 8
+        margin_top = 4
+        margin_bottom = 10
+        inner_left = panel_x + margin_x
+        inner_w = max(40, panel_width - 2 * margin_x)
+        top = self.charts_top + margin_top
+        bottom = self.control_panel.rect.bottom - margin_bottom
+        height = bottom - top
+        gap = 6
+        min_total = 3 * 28 + 2 * gap
+        if height < min_total:
+            return
+
+        self.debug_log_view_rect = pygame.Rect(inner_left, top, inner_w, height)
+        self._debug_log_subview_rects = []
+
+        inner_body_h = height - 2 * gap
+        base_h = inner_body_h // 3
+        rem = inner_body_h % 3
+        strip_heights = [base_h + (1 if i < rem else 0) for i in range(3)]
+
+        panels: List[Tuple[str, str]] = [
+            ("simulation", "Simulation / system"),
+            ("iql", "IQL"),
+            ("qmix", "QMIX"),
+        ]
+
+        font = self._get_terminal_font()
+        snapshots = get_ui_log_channel_snapshots()
+
+        y_cursor = top
+        for i, ((ch, title), h_i) in enumerate(zip(panels, strip_heights)):
+            sub = pygame.Rect(inner_left, y_cursor, inner_w, h_i)
+            self._draw_debug_log_channel_strip(
+                screen, sub, ch, title, snapshots.get(ch, []), font
+            )
+            y_cursor += h_i
+            if i < 2:
+                y_cursor += gap
     
     def _initialize_charts(self, panel_x: int, panel_width: int) -> Dict[str, Any]:
         """
@@ -4115,10 +4147,12 @@ class AcademicVisualizationSystem:
             if event.type == pygame.MOUSEWHEEL and self.active_view == "debug":
                 mouse_pos = pygame.mouse.get_pos()
                 if self.debug_log_view_rect.collidepoint(mouse_pos):
-                    # 与常见终端一致：向上滚轮（y>0）查看更早日志 → 增大距底部的跳过量
                     delta = 3 if event.y > 0 else -3
-                    self._debug_log_skip_bottom = max(0, self._debug_log_skip_bottom + delta)
-                    return True
+                    for ch, rect in self._debug_log_subview_rects:
+                        if rect.collidepoint(mouse_pos):
+                            cur = self._debug_log_skip_bottom.get(ch, 0)
+                            self._debug_log_skip_bottom[ch] = max(0, cur + delta)
+                            return True
 
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_pos = event.pos
