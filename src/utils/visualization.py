@@ -769,6 +769,7 @@ class QValueHeatmapPanel:
         self.cached_overlay: Optional[pygame.Surface] = None
         self.cached_q_map: Optional[np.ndarray] = None
         self.cached_agent_type: Optional[str] = None
+        self._overlay_dirty: bool = True
         
         # 智能采样：只在智能体附近详细计算
         self.smart_sampling = True
@@ -861,6 +862,7 @@ class QValueHeatmapPanel:
                     self.cached_overlay = None
                     self.cached_q_map = None
                     self.cached_agent_type = agent_type
+                    self._overlay_dirty = True
                     
             except Exception as e:
                 print(f"Error updating Q-value map for {agent_type}: {e}")
@@ -938,7 +940,7 @@ class QValueHeatmapPanel:
         env_x: int = 0,
         env_y: int = 0,
         skip_embedded_toggle: bool = False,
-    ) -> None:
+    ) -> Optional[pygame.Rect]:
         """
         绘制Q值热图叠加在环境地图上（使用缓存优化性能）
 
@@ -948,7 +950,11 @@ class QValueHeatmapPanel:
             cell_size: 单元格大小
             env_x, env_y: 环境地图的左上角坐标
             skip_embedded_toggle: 为 True 时不绘制地图角上的图例/开关（开关改由控制面板旁绘制）
+
+        Returns:
+            本帧实际重绘的热图区域；无绘制时返回 None
         """
+        dirty_rect: Optional[pygame.Rect] = None
         legend_x = env_x + grid_size * cell_size - 150
         legend_y = env_y + 10
 
@@ -996,7 +1002,8 @@ class QValueHeatmapPanel:
             screen.blit(toggle_text_surface, text_rect)
 
         if not self.enabled or not self.q_maps:
-            return
+            self._overlay_dirty = False
+            return None
 
         try:
             # 选择第一个可用的Q值热图
@@ -1024,13 +1031,20 @@ class QValueHeatmapPanel:
                 self._rebuild_overlay(q_map, grid_size, cell_size)
                 self.cached_q_map = q_map.copy()
                 self.cached_agent_type = current_agent_type
+                self._overlay_dirty = True
 
-            # 使用缓存的overlay绘制
-            if self.cached_overlay is not None:
+            map_w = grid_size * cell_size
+            map_h = grid_size * cell_size
+            map_rect = pygame.Rect(env_x, env_y, map_w, map_h)
+
+            # 仅在 overlay 重建或首次启用时 blit，避免每帧全图拷贝
+            if self._overlay_dirty and self.cached_overlay is not None:
                 screen.blit(self.cached_overlay, (env_x, env_y))
+                dirty_rect = map_rect.copy()
+                self._overlay_dirty = False
 
-            # 颜色条和数值标签（仅在启用且有数据时显示）
-            if self.enabled and self.q_maps:
+            # 颜色条和数值标签（仅在 overlay 更新时重绘）
+            if dirty_rect is not None and self.enabled and self.q_maps:
                 bar_width = 120
                 bar_height = 8
                 bar_x = legend_x + 10
@@ -1058,9 +1072,14 @@ class QValueHeatmapPanel:
                 )
                 screen.blit(min_text, (bar_x, bar_y + bar_height + 5))
                 screen.blit(max_text, (bar_x + bar_width - max_text.get_width(), bar_y + bar_height + 5))
+                legend_rect = pygame.Rect(legend_x, legend_y, 150, 70)
+                if dirty_rect is not None:
+                    dirty_rect = dirty_rect.union(legend_rect)
 
         except Exception as e:
             print(f"Error drawing Q-value heatmap: {e}")
+
+        return dirty_rect
     
     def _rebuild_overlay(self, q_map: np.ndarray, grid_size: int, cell_size: int) -> None:
         """重建overlay surface（仅在数据变化时调用）"""
@@ -1752,7 +1771,8 @@ class MARLSimulationRenderer:
         screen_height = max(900, self.grid_size * self.cell_size)
         return (screen_width, screen_height)
     
-    def draw_environment(self, screen: pygame.Surface, env_data: Dict[str, Any]) -> None:
+    def draw_environment(self, screen: pygame.Surface, env_data: Dict[str, Any],
+                         target: Optional[pygame.Surface] = None) -> None:
         """
         Draw environment with clear multi-resource visualization.
         
@@ -1761,6 +1781,8 @@ class MARLSimulationRenderer:
         2. Spice（橙色半透明覆盖，集中在特定区域）
         3. Hazard（红色半透明完全覆盖，最上层，最明显）
         """
+        if target is not None:
+            screen = target
         sugar_map = env_data.get('sugar_map')
         if sugar_map is None:
             return
@@ -1963,6 +1985,71 @@ class MARLSimulationRenderer:
                     
         except Exception as e:
             print(f"Agent drawing failed: {e}")
+    
+    def _agent_key(self, agent_data: Any) -> Optional[int]:
+        """获取智能体唯一标识，用于脏矩形追踪"""
+        if isinstance(agent_data, dict):
+            return agent_data.get('id')
+        return getattr(agent_data, 'agent_id', getattr(agent_data, 'id', None))
+
+    def get_agent_bounds(self, agent_data: Any) -> Optional[pygame.Rect]:
+        """计算智能体绘制包围盒（与 _draw_agent 使用相同几何）"""
+        agent = self._normalize_agent(agent_data)
+        if agent is None:
+            return None
+        agent_x = int(getattr(agent, 'x', 0))
+        agent_y = int(getattr(agent, 'y', 0))
+        x = agent_x * self.cell_size + self.cell_size // 2
+        y = agent_y * self.cell_size + self.cell_size // 2
+        base_radius = max(4, self.cell_size // 3)
+        sugar = float(getattr(agent, 'sugar', 0))
+        size_multiplier = 1.0 + min(sugar / 50.0, 1.0) * 0.3
+        radius = int(base_radius * size_multiplier)
+        radius = max(3, min(radius, self.cell_size // 2))
+        pad = 2
+        return pygame.Rect(x - radius - pad, y - radius - pad, 2 * (radius + pad), 2 * (radius + pad))
+
+    def draw_agents_dirty(
+        self,
+        screen: pygame.Surface,
+        agents: List[Any],
+        bg_surface: pygame.Surface,
+        prev_rects: Dict[int, pygame.Rect],
+    ) -> Dict[int, pygame.Rect]:
+        """
+        局部选择性绘制智能体：用背景切片擦除旧位置，再绘制新位置。
+        返回当前帧各 agent 的包围盒映射。
+        """
+        current_rects: Dict[int, pygame.Rect] = {}
+        try:
+            for agent_data in agents:
+                agent_key = self._agent_key(agent_data)
+                if agent_key is None:
+                    continue
+                bounds = self.get_agent_bounds(agent_data)
+                if bounds is None:
+                    continue
+                normalized = self._normalize_agent(agent_data)
+                if normalized is None:
+                    continue
+
+                agent_type = getattr(normalized, 'agent_type', None)
+                type_key = agent_type.value if hasattr(agent_type, 'value') else str(agent_type)
+
+                old_bounds = prev_rects.get(agent_key)
+                if old_bounds is not None:
+                    erase_rect = old_bounds.union(bounds)
+                    screen.blit(bg_surface, erase_rect.topleft, erase_rect)
+                current_rects[agent_key] = bounds
+                self._draw_agent(screen, normalized, type_key)
+
+            for agent_key, old_bounds in prev_rects.items():
+                if agent_key not in current_rects:
+                    screen.blit(bg_surface, old_bounds.topleft, old_bounds)
+
+        except Exception as e:
+            print(f"Agent dirty drawing failed: {e}")
+        return current_rects
     
     def _normalize_agent(self, agent: Any) -> Optional[Any]:
         """Normalize agent data to consistent format"""
@@ -3156,6 +3243,76 @@ class AcademicVisualizationSystem:
         )
         # 状态消息：在没有 IQL / QMIX 时，用于在行为视图中展示友好的英文提示
         self.behavior_status_message: Optional[str] = None
+
+        # ---- 双缓冲 / 脏矩形渲染状态 ----
+        self._dirty_rects: List[pygame.Rect] = []
+        self._force_full_redraw: bool = True
+        self._env_cache_surface: Optional[pygame.Surface] = None
+        self._map_composite_surface: Optional[pygame.Surface] = None
+        self._env_cache_signature: Optional[Tuple] = None
+        self._prev_agent_rects: Dict[int, pygame.Rect] = {}
+        self._last_rendered_step: int = -1
+        self._map_rect = pygame.Rect(0, 0, grid_size * cell_size, grid_size * cell_size)
+    
+    def invalidate_all(self) -> None:
+        """强制下一帧全屏重绘（切视图、重置、全屏切换等）"""
+        self._force_full_redraw = True
+        self._prev_agent_rects.clear()
+        self._env_cache_signature = None
+
+    def _mark_dirty(self, rect: pygame.Rect) -> None:
+        """记录本帧发生变化的矩形区域"""
+        if rect.width > 0 and rect.height > 0:
+            self._dirty_rects.append(rect)
+
+    def _env_signature(self, env_data: Dict[str, Any]) -> Tuple:
+        """轻量环境签名：用于判断是否需要重建地图离屏缓存"""
+        parts: List[Any] = []
+        for key in ('sugar_map', 'spice_map', 'hazard_map'):
+            arr = env_data.get(key)
+            if arr is None:
+                parts.append((key, None))
+                continue
+            a = np.asarray(arr)
+            parts.append((key, a.shape, float(a.sum()), float(a.max())))
+        return tuple(parts)
+
+    def _ensure_env_cache(self, env_data: Dict[str, Any]) -> bool:
+        """
+        确保环境离屏缓存与当前数据一致。
+        Returns:
+            True 表示本帧重建了缓存（需全图 blit）
+        """
+        signature = self._env_signature(env_data)
+        if (
+            not self._force_full_redraw
+            and self._env_cache_surface is not None
+            and signature == self._env_cache_signature
+        ):
+            return False
+
+        map_w, map_h = self._map_rect.width, self._map_rect.height
+        if self._env_cache_surface is None or self._env_cache_surface.get_size() != (map_w, map_h):
+            self._env_cache_surface = pygame.Surface((map_w, map_h))
+
+        self._env_cache_surface.fill(COLORS['BACKGROUND'])
+        self.simulation_renderer.draw_environment(self._env_cache_surface, env_data)
+        self._env_cache_signature = signature
+        return True
+
+    def _rebuild_map_composite(self) -> None:
+        """合成地图底图 = 环境 + 可选热图 overlay（不含 Agent）"""
+        if self._env_cache_surface is None:
+            return
+        map_w, map_h = self._map_rect.width, self._map_rect.height
+        if self._map_composite_surface is None or self._map_composite_surface.get_size() != (map_w, map_h):
+            self._map_composite_surface = pygame.Surface((map_w, map_h))
+        self._map_composite_surface.blit(self._env_cache_surface, (0, 0))
+        if (
+            self.q_value_heatmap.enabled
+            and self.q_value_heatmap.cached_overlay is not None
+        ):
+            self._map_composite_surface.blit(self.q_value_heatmap.cached_overlay, (0, 0))
     
     def _layout_q_heatmap_toggle_rect(self) -> None:
         """Pause/Reset 列右侧放置 Q-heatmap 开关，与 AcademicControlPanel._create_buttons 几何对齐。"""
@@ -3590,8 +3747,9 @@ class AcademicVisualizationSystem:
         
         return charts
     
-    def draw(self, screen: pygame.Surface, simulation_data: Dict[str, Any]) -> None:
-        """Draw entire visualization system"""
+    def draw(self, screen: pygame.Surface, simulation_data: Dict[str, Any]) -> List[pygame.Rect]:
+        """Draw entire visualization system; returns dirty rectangles for partial display update."""
+        self._dirty_rects = []
         try:
             # Update experiment panel simulation reference if available
             if self.experiment_panel and 'simulation' in simulation_data:
@@ -3604,12 +3762,22 @@ class AcademicVisualizationSystem:
             sim_state = simulation_data.get('state', 'unknown')
             is_running = (sim_state == 'running')
             is_paused = (sim_state == 'paused')
+
+            step_count = simulation_data.get('step_count', 0)
+            if step_count == 0 and self._last_rendered_step > 0:
+                self.invalidate_all()
+            self._last_rendered_step = step_count
+
+            force_full = self._force_full_redraw
+            if force_full:
+                screen.fill(COLORS['BACKGROUND'])
+                self._mark_dirty(screen.get_rect())
+                self._force_full_redraw = False
             
-            # Clear screen with academic background
-            screen.fill(COLORS['BACKGROUND'])
-            
-            # Draw environment - multi-resource aware
+            # Draw environment - multi-resource aware（离屏缓存 + 脏矩形）
             env_x, env_y = 0, 0
+            env_data: Optional[Dict[str, Any]] = None
+            env_rebuilt = False
             if 'environment' in simulation_data:
                 env_data = simulation_data['environment']
                 # 确保 sugar_map 存在（用于尺寸推断），其余资源图在 renderer 内部做兼容处理
@@ -3624,13 +3792,35 @@ class AcademicVisualizationSystem:
                         sugar_map = np.array(sugar_map)
                         env_data = dict(env_data)
                         env_data['sugar_map'] = sugar_map
-                self.simulation_renderer.draw_environment(screen, env_data)
+
+                env_rebuilt = self._ensure_env_cache(env_data)
+                if env_rebuilt or force_full:
+                    screen.blit(self._env_cache_surface, (env_x, env_y))
+                    self._mark_dirty(self._map_rect)
+                    self._rebuild_map_composite()
+                    self._prev_agent_rects.clear()
             
             # Draw agents - ensure we have valid agent data
-            if 'agents' in simulation_data:
-                agents = simulation_data['agents']
-                if agents and len(agents) > 0:
+            agents = simulation_data.get('agents') or []
+            if agents and self._map_composite_surface is not None:
+                if env_rebuilt or force_full:
                     self.simulation_renderer.draw_agents(screen, agents)
+                    self._prev_agent_rects = {}
+                    for agent_data in agents:
+                        agent_key = self.simulation_renderer._agent_key(agent_data)
+                        bounds = self.simulation_renderer.get_agent_bounds(agent_data)
+                        if agent_key is not None and bounds is not None:
+                            self._prev_agent_rects[agent_key] = bounds
+                    self._mark_dirty(self._map_rect)
+                else:
+                    self._prev_agent_rects = self.simulation_renderer.draw_agents_dirty(
+                        screen,
+                        agents,
+                        self._map_composite_surface,
+                        self._prev_agent_rects,
+                    )
+                    for rect in self._prev_agent_rects.values():
+                        self._mark_dirty(rect)
             
             # Q值热图：任意视图下可更新/叠加；开关改绘在控制面板旁（非 Behavior 专属）
             simulation = simulation_data.get('simulation')
@@ -3646,7 +3836,7 @@ class AcademicVisualizationSystem:
                 if environment is not None:
                     if self.q_value_heatmap.enabled and (is_running or is_paused):
                         self.q_value_heatmap.update(agents_by_type, environment)
-                    self.q_value_heatmap.draw(
+                    heatmap_dirty = self.q_value_heatmap.draw(
                         screen,
                         self.grid_size,
                         self.cell_size,
@@ -3654,18 +3844,39 @@ class AcademicVisualizationSystem:
                         env_y,
                         skip_embedded_toggle=True,
                     )
+                    if heatmap_dirty is not None:
+                        self._mark_dirty(heatmap_dirty)
+                        self._rebuild_map_composite()
+                        # overlay 变化后 Agent 需重绘到屏幕
+                        if agents and not env_rebuilt:
+                            for agent_data in agents:
+                                agent_key = self.simulation_renderer._agent_key(agent_data)
+                                bounds = self.simulation_renderer.get_agent_bounds(agent_data)
+                                if agent_key is None or bounds is None:
+                                    continue
+                                normalized = self.simulation_renderer._normalize_agent(agent_data)
+                                if normalized is None:
+                                    continue
+                                agent_type = getattr(normalized, 'agent_type', None)
+                                type_key = agent_type.value if hasattr(agent_type, 'value') else str(agent_type)
+                                self.simulation_renderer._draw_agent(screen, normalized, type_key)
+                                self._mark_dirty(bounds)
             
             # Prepare UI metrics
             ui_metrics = self._prepare_ui_metrics(simulation_data)
             
             # Draw control panel（基础统计）
             self.control_panel.draw(screen, ui_metrics)
+            self._mark_dirty(self.control_panel.rect)
             # Q-heatmap 开关叠在控制面板之上（Pause/Reset 右侧）
             if self.q_heatmap_toggle_rect is not None:
                 self.q_value_heatmap.draw_sidebar_toggle(screen, self.q_heatmap_toggle_rect)
+                self._mark_dirty(self.q_heatmap_toggle_rect)
 
             # 绘制视图 Tab
             self._draw_view_tabs(screen)
+            for _, tab_rect in self.view_tabs:
+                self._mark_dirty(tab_rect)
 
             # 根据当前视图绘制对应内容
             if self.active_view == "training":
@@ -3676,6 +3887,7 @@ class AcademicVisualizationSystem:
                     self._update_training_charts(simulation_data)
                 for chart in self.training_charts.values():
                     chart.draw(screen)
+                    self._mark_dirty(chart.rect)
 
                 # 将 Agent 分布面板紧贴在训练图表下方（仍然属于“图表区域”之内）
                 if 'metrics' in simulation_data and self.training_charts:
@@ -3688,6 +3900,7 @@ class AcademicVisualizationSystem:
                     agents_by_type = metrics.get('agents_by_type', {})
                     avg_sugar_by_type = metrics.get('avg_sugar_by_type', {})
                     self.agent_distribution_panel.draw(screen, agents_by_type, avg_sugar_by_type)
+                    self._mark_dirty(self.agent_distribution_panel.rect)
                 
                 # 如果当前没有IQL/QMIX或尚未产生训练数据，在训练视图中间给出英文提示
                 if self.training_status_message:
@@ -3696,6 +3909,8 @@ class AcademicVisualizationSystem:
                         self.training_status_message,
                         list(self.training_charts.values())
                     )
+                    for chart in self.training_charts.values():
+                        self._mark_dirty(chart.rect)
 
             elif self.active_view == "overview":
                 # 概览视图：在“图表区域”顶部展示类型分布
@@ -3709,6 +3924,7 @@ class AcademicVisualizationSystem:
                     agents_by_type = metrics.get('agents_by_type', {})
                     avg_sugar_by_type = metrics.get('avg_sugar_by_type', {})
                     self.agent_distribution_panel.draw(screen, agents_by_type, avg_sugar_by_type)
+                    self._mark_dirty(self.agent_distribution_panel.rect)
 
             elif self.active_view == "behavior":
                 # 行为视图：Reward Trend + Policy Entropy + 动作分布 + 网络状态
@@ -3721,6 +3937,7 @@ class AcademicVisualizationSystem:
                     chart = self.behavior_charts.get(chart_id)
                     if chart is not None:
                         chart.draw(screen)
+                        self._mark_dirty(chart.rect)
                         last_bottom = max(last_bottom, chart.rect.bottom)
 
                 if 'metrics' in simulation_data:
@@ -3733,6 +3950,7 @@ class AcademicVisualizationSystem:
                     self.action_distribution_panel.rect.height = max(140, min(220, available_height))
 
                     self.action_distribution_panel.draw(screen, action_dist)
+                    self._mark_dirty(self.action_distribution_panel.rect)
                     
                     # 更新并绘制网络状态面板（在动作分布面板下方）
                     # 获取智能体对象（需要从simulation中获取）
@@ -3753,6 +3971,7 @@ class AcademicVisualizationSystem:
                     available_height = self.control_panel.rect.bottom - self.network_state_panel.rect.y - 20
                     self.network_state_panel.rect.height = max(150, min(200, available_height))
                     self.network_state_panel.draw(screen)
+                    self._mark_dirty(self.network_state_panel.rect)
                 
                 # 如果当前没有IQL/QMIX，在行为视图上方给出英文提示
                 if self.behavior_status_message:
@@ -3763,19 +3982,26 @@ class AcademicVisualizationSystem:
                         self.behavior_status_message,
                         charts
                     )
+                    for chart in charts:
+                        self._mark_dirty(chart.rect)
 
             elif self.active_view == "experiment":
                 # Experiment 视图：配置面板
                 if self.experiment_panel:
                     self.experiment_panel.draw(screen)
-            
+                    self._mark_dirty(self.experiment_panel.rect)
+
             elif self.active_view == "debug":
                 self._draw_debug_log_panel(
                     screen, self.control_panel.rect.x, self.control_panel.rect.width
                 )
+                self._mark_dirty(self.debug_log_view_rect)
             
         except Exception as e:
             print(f"Visualization system drawing failed: {e}")
+            self._mark_dirty(screen.get_rect())
+
+        return self._dirty_rects
     
     def _prepare_ui_metrics(self, simulation_data: Dict[str, Any]) -> UIMetrics:
         """Prepare UI metrics from simulation data"""
@@ -4160,7 +4386,9 @@ class AcademicVisualizationSystem:
                 # 先处理视图 Tab 点击
                 for view_id, rect in self.view_tabs:
                     if rect.collidepoint(mouse_pos):
-                        self.active_view = view_id
+                        if self.active_view != view_id:
+                            self.active_view = view_id
+                            self.invalidate_all()
                         return True
                 
                 # Q值热图开关（控制面板旁，任意视图）
@@ -4169,9 +4397,11 @@ class AcademicVisualizationSystem:
                     and self.q_heatmap_toggle_rect.collidepoint(mouse_pos)
                 ):
                     self.q_value_heatmap.enabled = not self.q_value_heatmap.enabled
+                    self.q_value_heatmap._overlay_dirty = True
                     if not self.q_value_heatmap.enabled:
                         self.q_value_heatmap.cached_overlay = None
                         self.q_value_heatmap.q_maps.clear()
+                    self.invalidate_all()
                     return True
                 
                 # 处理 Experiment 视图事件
