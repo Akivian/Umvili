@@ -331,10 +331,10 @@ class MARLApplication:
                 width = screen_info.get('width', 1200)
                 height = screen_info.get('height', 800)
             
-            # 创建窗口标志
-            flags = 0
+            # 创建窗口标志（始终启用双缓冲以降低全屏像素拷贝开销）
+            flags = pygame.DOUBLEBUF
             if self.ui_config.window.enable_vsync:
-                flags |= pygame.DOUBLEBUF
+                pass  # DOUBLEBUF 已包含；保留分支以便日后扩展 vsync 专用标志
             
             self.screen = pygame.display.set_mode((width, height), flags)
             
@@ -488,6 +488,8 @@ class MARLApplication:
                 self.simulation.reset()
                 self.frame_count = 0
                 self.start_time = pygame.time.get_ticks() / 1000.0
+                if self.visualization_system:
+                    self.visualization_system.invalidate_all()
             
             # ESC键：退出
             elif key == pygame.K_ESCAPE:
@@ -522,10 +524,13 @@ class MARLApplication:
                         height = screen_info.get('height', 800)
                 else:
                     width, height = 1200, 800
-                self.screen = pygame.display.set_mode((width, height))
+                self.screen = pygame.display.set_mode((width, height), pygame.DOUBLEBUF)
             else:
                 # 进入全屏
-                self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+                self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN | pygame.DOUBLEBUF)
+            
+            if self.visualization_system:
+                self.visualization_system.invalidate_all()
             
             logger.info("Toggling fullscreen")
         except Exception as e:
@@ -571,15 +576,20 @@ class MARLApplication:
             # 获取模拟数据
             simulation_data = self.simulation.get_simulation_data()
             
-            # 使用可视化系统绘制
-            self.visualization_system.draw(self.screen, simulation_data)
+            # 使用可视化系统绘制，收集脏矩形
+            dirty_rects = self.visualization_system.draw(self.screen, simulation_data)
             
             # 显示FPS（如果启用）
             if self.app_config.show_fps and self.clock:
-                self._render_fps()
+                fps_rect = self._render_fps()
+                if fps_rect is not None:
+                    dirty_rects.append(fps_rect)
             
-            # 更新显示
-            pygame.display.flip()
+            # 局部选择性刷新；无脏区时回退到 flip 保证正确性
+            if dirty_rects:
+                pygame.display.update(dirty_rects)
+            else:
+                pygame.display.flip()
             
             return True
             
@@ -587,11 +597,11 @@ class MARLApplication:
             logger.error(f"Render failed: {e}", exc_info=True)
             return False
     
-    def _render_fps(self) -> None:
-        """在屏幕上渲染FPS信息"""
+    def _render_fps(self) -> Optional[pygame.Rect]:
+        """在屏幕上渲染FPS信息，返回脏矩形供局部刷新"""
         try:
             if self.screen is None or self.clock is None:
-                return
+                return None
             
             fps = self.clock.get_fps()
             fps_text = f"FPS: {fps:.1f}"
@@ -599,10 +609,13 @@ class MARLApplication:
             # 使用Pygame默认字体
             font = pygame.font.Font(None, 24)
             text_surface = font.render(fps_text, True, (255, 255, 255))
-            self.screen.blit(text_surface, (10, 10))
+            pos = (10, 10)
+            self.screen.blit(text_surface, pos)
+            return text_surface.get_rect(topleft=pos)
             
         except Exception as e:
             logger.debug(f"FPS overlay render failed: {e}")
+            return None
     
     def _update_performance_stats(self, dt: float) -> None:
         """更新性能统计"""
