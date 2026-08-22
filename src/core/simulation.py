@@ -20,6 +20,16 @@ GRID_SIZE = 80
 CELL_SIZE = 10
 
 
+def _ui_logger_for_marl_trainer(agent_type: str) -> logging.Logger:
+    """
+    MARL 训练循环中由 simulation 层发出的日志应使用与训练器一致的 logger 名，
+    以便 Debug 三栏 UI 将 QMIX 相关行路由到 QMIX 面板（根 logger 会进 Simulation）。
+    """
+    if agent_type == "qmix":
+        return logging.getLogger("QMIXTrainer")
+    return logging.getLogger()
+
+
 class SimulationState(Enum):
     """简化的模拟状态枚举"""
     READY = "ready"
@@ -332,7 +342,9 @@ class MARLSimulation:
             trainer: 训练器实例
         """
         self.marl_trainers[agent_type] = trainer
-        logging.info(f"Registered trainer for {agent_type}: {trainer.__class__.__name__}")
+        _ui_logger_for_marl_trainer(agent_type).info(
+            f"Registered trainer for {agent_type}: {trainer.__class__.__name__}"
+        )
     
     def start(self) -> None:
         """启动模拟"""
@@ -599,21 +611,29 @@ class MARLSimulation:
                             agent.last_action = None
                             
                     except Exception as e:
-                        logging.warning(f"Failed to bind trainer to agent {agent.agent_id}: {e}")
+                        _ui_logger_for_marl_trainer("qmix").warning(
+                            f"Failed to bind trainer to agent {agent.agent_id}: {e}"
+                        )
                 
                 # 同步网络参数到所有 QMIX 智能体（确保所有智能体使用相同的网络）
                 if hasattr(qmix_trainer, 'sync_agent_networks'):
                     try:
                         qmix_trainer.sync_agent_networks(qmix_agents)
                     except Exception as e:
-                        logging.warning(f"Failed to sync network parameters: {e}")
+                        _ui_logger_for_marl_trainer("qmix").warning(
+                            f"Failed to sync network parameters: {e}"
+                        )
                 
                 # 在模拟中注册训练器
                 self.register_trainer("qmix", qmix_trainer)
-                logging.info(f"Recreated and registered QMIX trainer for {num_agents} agents")
+                _ui_logger_for_marl_trainer("qmix").info(
+                    f"Recreated and registered QMIX trainer for {num_agents} agents"
+                )
         
         except Exception as e:
-            logging.error(f"Failed to recreate trainers: {e}", exc_info=True)
+            _ui_logger_for_marl_trainer("qmix").error(
+                f"Failed to recreate trainers: {e}", exc_info=True
+            )
             # 即使训练器创建失败，也不应该阻止模拟运行
             # 只是没有训练功能而已
     
@@ -701,22 +721,23 @@ class MARLSimulation:
         trainers_to_update = list(self.marl_trainers.items())
         
         for agent_type, trainer in trainers_to_update:
+            train_ui_log = _ui_logger_for_marl_trainer(agent_type)
             try:
                 # 验证训练器是否有效
                 if trainer is None:
-                    logging.warning(f"{agent_type} trainer is None, skipping")
+                    train_ui_log.warning(f"{agent_type} trainer is None, skipping")
                     continue
                 
                 # 验证训练器是否有必要的方法
                 if not hasattr(trainer, 'train_step'):
-                    logging.warning(f"{agent_type} trainer has no train_step, skipping")
+                    train_ui_log.warning(f"{agent_type} trainer has no train_step, skipping")
                     continue
                 
                 # 检查训练器是否引用了已删除的智能体（通过检查 num_agents）
                 if hasattr(trainer, 'num_agents'):
                     actual_agents = len(self.agent_manager.get_agents_by_type(agent_type))
                     if trainer.num_agents != actual_agents:
-                        logging.warning(
+                        train_ui_log.warning(
                             f"{agent_type} trainer num_agents ({trainer.num_agents}) "
                             f"!= alive agents ({actual_agents}), skipping training"
                         )
@@ -726,7 +747,11 @@ class MARLSimulation:
                 trainer.train_step()
                 
             except Exception as e:
-                logging.warning(f"{agent_type} training failed: {e}")
+                tlog = getattr(trainer, "logger", None) if trainer is not None else None
+                if tlog is not None:
+                    tlog.warning(f"Training failed in simulation loop ({agent_type}): {e}", exc_info=True)
+                else:
+                    train_ui_log.warning(f"{agent_type} training failed: {e}")
                 # 如果训练器持续失败，可以考虑移除它
                 # 但这里只记录警告，不自动移除，避免频繁创建/删除训练器
     
@@ -900,7 +925,9 @@ class MARLSimulation:
                     }
                     type_metrics[agent_type].append(trainer_info)
             except Exception as e:
-                logging.debug(f"Collect trainer stats for {agent_type} failed: {e}")
+                _ui_logger_for_marl_trainer(agent_type).debug(
+                    f"Collect trainer stats for {agent_type} failed: {e}"
+                )
                 continue
         
         # 聚合每个类型的指标
