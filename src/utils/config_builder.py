@@ -25,6 +25,12 @@ from src.config.defaults import (
     DEFAULT_SIMULATION_CONFIG,
     DEFAULT_AGENT_CONFIGS
 )
+from src.core.experiment_protocol import (
+    MatchedHyperparameters,
+    ProtocolError,
+    RewardSpec,
+    default_protocol,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +86,16 @@ class ConfigBuilder:
                 'environment': self._collect_environment_params(ui_controls),
                 'algorithm_combination': self._collect_algorithm_combination(ui_controls),
                 'agents': self._collect_agent_params(ui_controls),
-                'resource_enabled': self._collect_resource_enabled(ui_controls)
+                'resource_enabled': self._collect_resource_enabled(ui_controls),
+                'reward_exploration': bool(ui_controls.get('reward_exploration', False)),
+                'reward_wealth': bool(ui_controls.get('reward_wealth', False)),
+                'reward_efficiency': bool(ui_controls.get('reward_efficiency', False)),
+                'reward_movement_cost': bool(ui_controls.get('reward_movement_cost', False)),
+                'reward_boundary': bool(ui_controls.get('reward_boundary', False)),
+                'matched_learning_rate': ui_controls.get('iql_learning_rate', ui_controls.get('matched_learning_rate')),
+                'matched_gamma': ui_controls.get('iql_gamma', ui_controls.get('matched_gamma')),
+                'matched_epsilon_start': ui_controls.get('iql_epsilon_start', ui_controls.get('matched_epsilon_start')),
+                'matched_epsilon_end': ui_controls.get('iql_epsilon_end', ui_controls.get('matched_epsilon_end')),
             }
             
             self.logger.debug(f"Collected UI parameters: {params}")
@@ -210,13 +225,13 @@ class ConfigBuilder:
         count = ui_controls.get('qmix_count', 20)
         
         # Learning parameters
-        learning_rate = ui_controls.get('qmix_learning_rate', defaults.get('learning_rate', 0.0005))
-        gamma = ui_controls.get('qmix_gamma', defaults.get('gamma', 0.99))
+        learning_rate = ui_controls.get('iql_learning_rate', defaults.get('learning_rate', 5e-4))
+        gamma = ui_controls.get('iql_gamma', defaults.get('gamma', 0.99))
         
         # Exploration parameters
-        epsilon_start = ui_controls.get('qmix_epsilon_start', defaults.get('epsilon_start', 1.0))
-        epsilon_end = ui_controls.get('qmix_epsilon_end', defaults.get('epsilon_end', 0.05))
-        epsilon_decay = ui_controls.get('qmix_epsilon_decay', defaults.get('epsilon_decay', 0.999))
+        epsilon_start = ui_controls.get('iql_epsilon_start', defaults.get('epsilon_start', 1.0))
+        epsilon_end = ui_controls.get('iql_epsilon_end', defaults.get('epsilon_end', 0.05))
+        epsilon_decay = ui_controls.get('iql_epsilon_decay', defaults.get('epsilon_decay', 0.995))
         
         # Training parameters
         batch_size = ui_controls.get('qmix_batch_size', defaults.get('batch_size', 32))
@@ -230,7 +245,7 @@ class ConfigBuilder:
             try:
                 agent_hidden_dims = [int(x.strip()) for x in agent_hidden_dims_str.split(',')]
             except (ValueError, AttributeError):
-                agent_hidden_dims = defaults.get('agent_hidden_dims', [64, 64])
+                agent_hidden_dims = defaults.get('agent_hidden_dims', [128, 64])
         else:
             agent_hidden_dims = defaults.get('agent_hidden_dims', [64, 64])
         
@@ -419,6 +434,51 @@ class ConfigBuilder:
             self.logger.error(f"Failed to build agent configs: {e}", exc_info=True)
             raise ConfigBuilderError(f"Failed to build agent configs: {e}")
     
+    def build_protocol(self, params: Dict[str, Any], sim_config: SimulationConfig):
+        """Lock reward, observation and matched hyperparameters into one protocol."""
+        agents = params.get("agents", {})
+        iql = agents.get("iql", {})
+        mode = params.get("algorithm_combination", "iql_qmix")
+        network_type = iql.get("network_type", "dqn")
+        if mode == "iql_qmix" and network_type != "dqn":
+            raise ProtocolError(
+                "iql_qmix keeps the network family at dqn; "
+                "open Dueling or Noisy only in IQL Only mode"
+            )
+        env = params.get("environment", {})
+        resources = params.get("resource_enabled", {})
+        matched = MatchedHyperparameters(
+            learning_rate=float(params.get("matched_learning_rate", iql.get("learning_rate", 5e-4)) or 5e-4),
+            gamma=float(params.get("matched_gamma", iql.get("gamma", 0.99)) or 0.99),
+            epsilon_start=float(params.get("matched_epsilon_start", iql.get("epsilon_start", 1.0)) or 1.0),
+            epsilon_end=float(params.get("matched_epsilon_end", iql.get("epsilon_end", 0.05)) or 0.05),
+            epsilon_decay=float(iql.get("epsilon_decay", 0.995)),
+            network_type=network_type if mode == "iql_only" else "dqn",
+            hidden_dims=tuple(iql.get("hidden_dims", (128, 64))),
+        )
+        reward = RewardSpec(
+            exploration_enabled=bool(params.get("reward_exploration", False)),
+            wealth_enabled=bool(params.get("reward_wealth", False)),
+            efficiency_enabled=bool(params.get("reward_efficiency", False)),
+            movement_cost_enabled=bool(params.get("reward_movement_cost", False)),
+            boundary_penalty_enabled=bool(params.get("reward_boundary", False)),
+        )
+        return default_protocol(
+            grid_size=sim_config.grid_size,
+            sugar_growth_rate=sim_config.sugar_growth_rate,
+            max_sugar=sim_config.max_sugar,
+            spice_growth_rate=float(env.get("spice_growth_rate", 0.02)),
+            max_spice=float(env.get("max_spice", 6.0)),
+            hazard_decay_rate=float(env.get("hazard_decay_rate", 0.0)),
+            hazard_target_fraction=float(env.get("hazard_target_fraction", 0.33)),
+            sugar_enabled=bool(resources.get("sugar", True)),
+            spice_enabled=bool(resources.get("spice", True)),
+            hazard_enabled=bool(resources.get("hazard", True)),
+            algorithm_mode=mode,
+            matched=matched,
+            reward=reward,
+        )
+
     def build_full_config(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Build full configuration dictionary for simulation.reset()
@@ -434,6 +494,7 @@ class ConfigBuilder:
             agent_configs = self.build_agent_configs(params)
             
             # Build full config dict
+            protocol = self.build_protocol(params, sim_config)
             full_config = {
                 'grid_size': sim_config.grid_size,
                 'cell_size': sim_config.cell_size,
@@ -441,6 +502,7 @@ class ConfigBuilder:
                 'sugar_growth_rate': sim_config.sugar_growth_rate,
                 'max_sugar': sim_config.max_sugar,
                 'agent_configs': agent_configs,
+                'protocol': protocol.to_dict(),
                 # Environment parameters
                 'spice_growth_rate': params.get('environment', {}).get('spice_growth_rate', 0.02),
                 'max_spice': params.get('environment', {}).get('max_spice', 6.0),
@@ -453,7 +515,10 @@ class ConfigBuilder:
                 }),
             }
             
-            self.logger.info("Built full configuration dictionary")
+            self.logger.info(
+                "Built full configuration dictionary, protocol=%s",
+                protocol.protocol_hash(),
+            )
             return full_config
             
         except Exception as e:
@@ -496,6 +561,11 @@ class ConfigBuilder:
             
             if env_params.get('max_sugar', 10.0) < 1 or env_params.get('max_sugar', 10.0) > 100:
                 return False, "max_sugar must be between 1 and 100"
+
+            try:
+                self.build_protocol(config, sim_config)
+            except ProtocolError as exc:
+                return False, str(exc)
             
             return True, None
             

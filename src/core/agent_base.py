@@ -110,6 +110,9 @@ class ObservationSpace:
         self.agent_position = agent_position
         self.step = step
         self.environment_size = environment_size
+        self.local_channels = None
+        self.encoded_state = None
+        self.global_state_vec = None
         
     def flatten(self) -> np.ndarray:
         """Flatten observation space to 1D array (for neural network input)"""
@@ -284,6 +287,7 @@ class BaseAgent(ABC):
         # Harvest tracking (for reward calculation)
         self._last_harvest_sugar = 0.0
         self._last_harvest_spice = 0.0
+        self.last_reward_event = None
         
         # Logger
         self.logger = logging.getLogger(f'{self.__class__.__name__}_{agent_id}')
@@ -321,19 +325,23 @@ class BaseAgent(ABC):
         Returns:
             Observation space object
         """
-        # Get local view
-        local_view = self._get_local_view(environment)
-        
-        # Get global statistics
+        from src.core.observation_encoder import encode_global_state, encode_local_state, local_channels
+
+        channels = local_channels(environment, self.x, self.y, self.vision_range)
+        max_sugar = max(float(getattr(environment, "max_sugar", 10.0)), 1e-6)
+        local_view = channels[0] * max_sugar
         global_stats = self._get_global_stats(environment)
-        
-        return ObservationSpace(
+        observation = ObservationSpace(
             local_view=local_view,
             global_stats=global_stats,
             agent_position=(self.x, self.y),
             step=getattr(environment, 'step', 0),
             environment_size=environment.size
         )
+        observation.local_channels = channels
+        observation.encoded_state = encode_local_state(environment, self)
+        observation.global_state_vec = encode_global_state(environment)
+        return observation
     
     def update(self, environment: EnvironmentProtocol) -> bool:
         """
@@ -385,6 +393,7 @@ class BaseAgent(ABC):
             
             # Hazard 伤害：在hazard区域内，agent会直接损失大量sugar
             hazard_damage = harvest_result.get('hazard_damage', 0.0)
+            self._last_hazard_damage = float(hazard_damage)
             if hazard_damage > 0.0:
                 self.sugar -= hazard_damage
         else:
@@ -394,6 +403,7 @@ class BaseAgent(ABC):
             self.total_collected += collected
             self._last_harvest_sugar = collected
             self._last_harvest_spice = 0.0
+            self._last_hazard_damage = 0.0
         
         # Metabolism consumption
         self.sugar -= self.metabolism_rate
@@ -406,6 +416,24 @@ class BaseAgent(ABC):
         if self.sugar <= self.base_config.min_sugar_for_survival:
             self.status = AgentStatus.DEAD
             self.metrics.status = AgentStatus.DEAD
+
+        from src.core.experiment_protocol import RewardEvent
+
+        visited = getattr(self, "visited_positions", set())
+        self.last_reward_event = RewardEvent(
+            sugar_collected=float(getattr(self, "_last_harvest_sugar", 0.0)),
+            spice_collected=float(getattr(self, "_last_harvest_spice", 0.0)),
+            hazard_damage=float(getattr(self, "_last_hazard_damage", 0.0)),
+            metabolism_cost=float(self.metabolism_rate),
+            died=self.status != AgentStatus.ALIVE,
+            prev_position=(int(self.previous_x), int(self.previous_y)),
+            position=(int(self.x), int(self.y)),
+            visited_positions=RewardEvent.visited_from(visited),
+            environment_size=int(environment.size),
+            age=int(self.age),
+            total_collected=float(self.total_collected),
+            current_sugar=float(self.sugar),
+        )
         
         # Update performance metrics
         self._update_metrics()

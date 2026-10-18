@@ -242,6 +242,7 @@ class AgentFactory:
                     self._generation_history: List[GenerationConfig] = []
                     # Grid size used for position generation; can be overridden by simulation
                     self.grid_size: int = GRID_SIZE
+                    self._protocol = None
                     # Logger and registry init
                     self._logger = self._setup_logger()
                     self._initialize_registry()
@@ -267,6 +268,55 @@ class AgentFactory:
         except Exception as e:
             if hasattr(self, "_logger"):
                 self._logger.warning(f"Failed to set AgentFactory grid_size ({grid_size}): {e}")
+
+    def set_protocol(self, protocol) -> None:
+        """Install the run protocol before creating agents."""
+        self._protocol = protocol
+
+    def _matched_kwargs(self) -> Dict[str, Any]:
+        protocol = self._protocol
+        if protocol is None:
+            from src.core.experiment_protocol import default_protocol
+            protocol = default_protocol(grid_size=self.grid_size)
+            self._protocol = protocol
+        matched = protocol.matched
+        return {
+            "state_dim": protocol.local_state_dim,
+            "action_dim": 8,
+            "hidden_dims": list(matched.hidden_dims),
+            "network_type": matched.network_type,
+            "learning_rate": matched.learning_rate,
+            "gamma": matched.gamma,
+            "tau": matched.tau,
+            "epsilon_start": matched.epsilon_start,
+            "epsilon_end": matched.epsilon_end,
+            "epsilon_decay": matched.epsilon_decay,
+            "batch_size": matched.batch_size,
+            "replay_buffer_size": matched.replay_buffer_size,
+            "learning_starts": matched.learning_starts,
+            "train_frequency": matched.train_frequency,
+            "target_update_frequency": matched.target_update_frequency,
+            "per_alpha": matched.per_alpha,
+            "per_beta": matched.per_beta,
+            "global_state_dim": protocol.global_state_dim,
+        }
+
+    def _apply_protocol(self, agent: BaseAgent) -> BaseAgent:
+        protocol = self._protocol
+        if protocol is None:
+            return agent
+        body = protocol.body
+        agent.vision_range = body.vision_range
+        agent.metabolism_rate = body.metabolism_rate
+        agent.sugar = body.initial_sugar
+        agent.max_sugar = body.initial_sugar
+        if hasattr(agent, "base_config"):
+            agent.base_config.vision_range = body.vision_range
+            agent.base_config.metabolism_rate = body.metabolism_rate
+            agent.base_config.initial_sugar = body.initial_sugar
+        if hasattr(agent, "bind_protocol"):
+            agent.bind_protocol(protocol)
+        return agent
     
     def _setup_logger(self) -> logging.Logger:
         """Setup logger"""
@@ -322,25 +372,28 @@ class AgentFactory:
     def _create_iql_agent_creator(self) -> AgentCreator:
         """Create IQL agent creator function"""
         def creator(x: int, y: int, agent_id: int, **kwargs) -> IQLAgent:
-            """IQL agent creator"""
-            # Create IQLConfig from kwargs
+            """IQL agent creator. Learning hyperparameters come from the protocol."""
+            matched = self._matched_kwargs()
             iql_config = IQLConfig(
-                state_dim=kwargs.get('state_dim', 64),
-                action_dim=kwargs.get('action_dim', 8),
-                hidden_dims=kwargs.get('hidden_dims', [128, 64]),
-                network_type=kwargs.get('network_type', 'dqn'),
-                use_double_dqn=kwargs.get('use_double_dqn', True),
-                learning_rate=kwargs.get('learning_rate', 0.001),
-                gamma=kwargs.get('gamma', 0.95),
-                tau=kwargs.get('tau', 0.01),
-                epsilon_start=kwargs.get('epsilon_start', 1.0),
-                epsilon_end=kwargs.get('epsilon_end', 0.01),
-                epsilon_decay=kwargs.get('epsilon_decay', 0.995),
-                batch_size=kwargs.get('batch_size', 32),
-                replay_buffer_size=kwargs.get('replay_buffer_size', 10000),
-                learning_starts=kwargs.get('learning_starts', 1000),
-                train_frequency=kwargs.get('train_frequency', 4),
-                target_update_frequency=kwargs.get('target_update_frequency', 100)
+                state_dim=matched["state_dim"],
+                action_dim=matched["action_dim"],
+                hidden_dims=matched["hidden_dims"],
+                network_type=matched["network_type"],
+                use_double_dqn=True,
+                learning_rate=matched["learning_rate"],
+                gamma=matched["gamma"],
+                tau=matched["tau"],
+                epsilon_start=matched["epsilon_start"],
+                epsilon_end=matched["epsilon_end"],
+                epsilon_decay=matched["epsilon_decay"],
+                batch_size=matched["batch_size"],
+                replay_buffer_size=matched["replay_buffer_size"],
+                learning_starts=matched["learning_starts"],
+                train_frequency=matched["train_frequency"],
+                target_update_frequency=matched["target_update_frequency"],
+                per_alpha=matched["per_alpha"],
+                per_beta=matched["per_beta"],
+                shared_parameters=True,
             )
             
             agent = IQLAgent(
@@ -363,22 +416,24 @@ class AgentFactory:
             trainer = kwargs.pop('trainer', None)
             
             # Create QMIXConfig from kwargs
+            matched = self._matched_kwargs()
             qmix_config = QMIXConfig(
-                state_dim=kwargs.get('state_dim', 128),
-                action_dim=kwargs.get('action_dim', 8),
-                agent_hidden_dims=kwargs.get('agent_hidden_dims', [64, 64]),
-                mixing_hidden_dim=kwargs.get('mixing_hidden_dim', 32),
-                learning_rate=kwargs.get('learning_rate', 0.0005),
-                gamma=kwargs.get('gamma', 0.99),
-                tau=kwargs.get('tau', 0.005),
-                epsilon_start=kwargs.get('epsilon_start', 1.0),
-                epsilon_end=kwargs.get('epsilon_end', 0.05),
-                epsilon_decay=kwargs.get('epsilon_decay', 0.999),
-                batch_size=kwargs.get('batch_size', 32),
-                replay_buffer_size=kwargs.get('replay_buffer_size', 10000),
-                learning_starts=kwargs.get('learning_starts', 1000),
-                train_frequency=kwargs.get('train_frequency', 4),
-                target_update_frequency=kwargs.get('target_update_frequency', 200)
+                state_dim=matched["state_dim"],
+                action_dim=matched["action_dim"],
+                agent_hidden_dims=matched["hidden_dims"],
+                mixing_hidden_dim=32,
+                global_state_dim=matched["global_state_dim"],
+                learning_rate=matched["learning_rate"],
+                gamma=matched["gamma"],
+                tau=matched["tau"],
+                epsilon_start=matched["epsilon_start"],
+                epsilon_end=matched["epsilon_end"],
+                epsilon_decay=matched["epsilon_decay"],
+                batch_size=matched["batch_size"],
+                replay_buffer_size=matched["replay_buffer_size"],
+                learning_starts=matched["learning_starts"],
+                train_frequency=matched["train_frequency"],
+                target_update_frequency=matched["target_update_frequency"],
             )
             
             # Extract base agent config parameters
@@ -536,7 +591,7 @@ class AgentFactory:
                     )
             
             self._logger.debug(f"Created agent: {agent_type} ID={agent_id} at ({x}, {y})")
-            return agent
+            return self._apply_protocol(agent)
             
         except Exception as e:
             error_msg = f"Agent creation failed (type: {agent_type}, ID: {agent_id}): {str(e)}"

@@ -16,6 +16,7 @@ from enum import Enum
 import numpy as np
 
 from src.core.agent_base import AgentStatus
+from src.core.experiment_protocol import RewardEvent, RewardSpec
 
 
 class RewardComponent(Enum):
@@ -87,17 +88,83 @@ class RewardCalculator:
     with configurable components and weights.
     """
     
-    def __init__(self, config: Optional[RewardConfig] = None):
+    def __init__(self, config: Optional[RewardConfig] = None, spec: Optional[RewardSpec] = None):
         """
         Initialize reward calculator
         
         Args:
-            config: Reward configuration (uses defaults if None)
+            config: Legacy reward configuration. Ignored when spec is provided.
+            spec: Protocol reward specification. This is the comparison contract.
         """
+        self.spec = spec
         self.config = config or RewardConfig()
         self.component_history: Dict[RewardComponent, list] = {
             component: [] for component in RewardComponent
         }
+
+    @classmethod
+    def from_spec(cls, spec: RewardSpec) -> "RewardCalculator":
+        return cls(spec=spec)
+
+    def calculate_from_event(self, event: RewardEvent) -> Dict[str, Any]:
+        """Score an explicit transition. Both algorithms must call this path."""
+        spec = self.spec or RewardSpec()
+        reward = 0.0
+        components: Dict[RewardComponent, float] = {}
+
+        if event.sugar_collected > 0:
+            sugar_reward = event.sugar_collected * spec.sugar_weight
+            reward += sugar_reward
+            components[RewardComponent.SUGAR_COLLECTION] = sugar_reward
+        if event.spice_collected > 0:
+            spice_reward = event.spice_collected * spec.spice_weight
+            reward += spice_reward
+            components[RewardComponent.SPICE_COLLECTION] = spice_reward
+        if event.hazard_damage > 0:
+            hazard_penalty = -event.hazard_damage * spec.hazard_weight
+            reward += hazard_penalty
+            components[RewardComponent.SUGAR_COLLECTION] = (
+                components.get(RewardComponent.SUGAR_COLLECTION, 0.0) + hazard_penalty
+            )
+        if event.metabolism_cost > 0:
+            metabolism_penalty = -event.metabolism_cost * spec.metabolism_weight
+            reward += metabolism_penalty
+            components[RewardComponent.SURVIVAL] = metabolism_penalty
+        if event.died:
+            reward -= spec.death_penalty
+            components[RewardComponent.DEATH_PENALTY] = -spec.death_penalty
+
+        visited = set(event.visited_positions)
+        if spec.exploration_enabled and event.position not in visited:
+            reward += spec.exploration_reward
+            components[RewardComponent.EXPLORATION] = spec.exploration_reward
+        if spec.movement_cost_enabled and event.position != event.prev_position:
+            reward -= spec.movement_cost
+            components[RewardComponent.MOVEMENT_COST] = -spec.movement_cost
+        if spec.efficiency_enabled and event.age > spec.efficiency_min_age and event.age > 0:
+            efficiency_reward = (event.total_collected / event.age) * spec.efficiency_multiplier
+            reward += efficiency_reward
+            components[RewardComponent.EFFICIENCY] = efficiency_reward
+        if spec.wealth_enabled:
+            if event.current_sugar > spec.wealth_threshold_2:
+                reward += spec.wealth_reward_2
+                components[RewardComponent.WEALTH] = spec.wealth_reward_2
+            elif event.current_sugar > spec.wealth_threshold_1:
+                reward += spec.wealth_reward_1
+                components[RewardComponent.WEALTH] = spec.wealth_reward_1
+        if spec.boundary_penalty_enabled:
+            x, y = event.position
+            limit = event.environment_size - 1
+            if x == 0 or y == 0 or x == limit or y == limit:
+                reward -= spec.boundary_penalty
+                components[RewardComponent.BOUNDARY_PENALTY] = -spec.boundary_penalty
+
+        reward = max(-spec.clip_abs, min(spec.clip_abs, reward))
+        for component, value in components.items():
+            self.component_history[component].append(value)
+            if len(self.component_history[component]) > 1000:
+                self.component_history[component].pop(0)
+        return {"reward": reward, "components": components}
     
     def calculate_reward(
         self,

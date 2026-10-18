@@ -16,7 +16,15 @@ from dataclasses import dataclass
 import logging
 
 from src.core.agent_base import LearningAgent, ObservationSpace, AgentType, AgentStatus
-from src.core.reward_calculator import RewardCalculator, RewardConfig
+from src.core.experiment_protocol import (
+    GLOBAL_STATE_DIM,
+    ActionCodec,
+    RewardSpec,
+    epsilon_greedy_policy,
+    policy_entropy_bits,
+)
+from src.core.observation_encoder import ObservationSpecError, require_local_state
+from src.core.reward_calculator import RewardCalculator
 from src.marl.networks import QMIXAgentNetwork, QMIXMixingNetwork
 from src.marl.replay_buffer import Experience, PriorityReplayBuffer
 from src.config.simulation_config import SimulationConfig
@@ -28,20 +36,21 @@ GRID_SIZE = 80
 class QMIXConfig:
     """QMIX算法配置数据类"""
     # 网络配置
-    state_dim: int = 128
+    state_dim: int = 3 * 11 * 11 + 4
     action_dim: int = 8
     agent_hidden_dims: List[int] = None
     mixing_hidden_dim: int = 32
+    global_state_dim: int = GLOBAL_STATE_DIM
     
-    # 学习参数
-    learning_rate: float = 0.0005
+    # 学习参数（默认值与 ExperimentProtocol 匹配层一致）
+    learning_rate: float = 5e-4
     gamma: float = 0.99
-    tau: float = 0.005  # 目标网络软更新参数
+    tau: float = 0.01
     
     # 探索参数
     epsilon_start: float = 1.0
     epsilon_end: float = 0.05
-    epsilon_decay: float = 0.999
+    epsilon_decay: float = 0.995
     
     # 训练参数
     batch_size: int = 32
@@ -52,7 +61,7 @@ class QMIXConfig:
     
     def __post_init__(self):
         if self.agent_hidden_dims is None:
-            self.agent_hidden_dims = [64, 64]
+            self.agent_hidden_dims = [128, 64]
 
 
 class QMIXAgent(LearningAgent):
@@ -132,7 +141,8 @@ class QMIXAgent(LearningAgent):
             'q_values': [],
             'losses': [],
             'td_errors': [],
-            'exploration_rate': []
+            'exploration_rate': [],
+            'rewards': [],
         }
 
         # 状态记录
@@ -140,26 +150,20 @@ class QMIXAgent(LearningAgent):
         self._last_position = (self.x, self.y)
         self.visited_positions = set([(self.x, self.y)])  # 探索记录
         
-        # 初始化奖励计算器（QMIX使用稍不同的配置）
-        reward_config = RewardConfig(
-            sugar_collection_multiplier=1.0,  # QMIX使用较小的乘数
-            sugar_consumption_penalty=0.3,
-            exploration_reward=0.3,
-            survival_reward=0.1,
-            efficiency_multiplier=0.2,
-            wealth_threshold_1=25.0,
-            wealth_reward_1=0.0,  # QMIX不使用财富奖励
-            wealth_threshold_2=50.0,
-            wealth_reward_2=0.0,
-            movement_cost=0.05,
-            death_penalty=2.0,  # QMIX使用较小的死亡惩罚
-            boundary_penalty=0.0,  # QMIX不使用边界惩罚
-            min_reward=-2.0,
-            max_reward=2.0
-        )
-        self.reward_calculator = RewardCalculator(reward_config)
+        self.protocol = None
+        self.reward_calculator = RewardCalculator.from_spec(RewardSpec())
+        self.last_policy_entropy = 0.0
         
         self.logger.info(f"QMIX agent initialized: {self.name}")
+
+    def bind_protocol(self, protocol) -> None:
+        """Attach the run protocol. Reward weights come only from this object."""
+        self.protocol = protocol
+        self.reward_calculator = RewardCalculator.from_spec(protocol.reward)
+        if self.state_dim != protocol.local_state_dim:
+            raise ObservationSpecError(
+                f"QMIX state_dim {self.state_dim} != protocol {protocol.local_state_dim}"
+            )
     
     def set_trainer(self, trainer: Any) -> None:
         """
@@ -243,6 +247,13 @@ class QMIXAgent(LearningAgent):
         self.last_state = state
         self.last_action_idx = action_idx
         self.last_global_state = global_state
+        q_for_policy = None
+        if self.q_network is not None and len(state) == self.state_dim:
+            with torch.no_grad():
+                q_for_policy = self.q_network(torch.FloatTensor(state).unsqueeze(0)).numpy().flatten()
+        self.last_policy_entropy = policy_entropy_bits(
+            epsilon_greedy_policy(q_for_policy, self.epsilon, self.action_dim)
+        )
         
         return action
     
@@ -298,7 +309,7 @@ class QMIXAgent(LearningAgent):
             # 完善并发送经验数据
             if self.pending_experience is not None:
                 self.pending_experience['reward'] = reward
-                self.pending_experience['done'] = not is_alive
+                self.pending_experience['done'] = (not is_alive) or getattr(self, "episode_cutoff", False)
                 
                 # 发送给训练器
                 if self.trainer and hasattr(self.trainer, 'store_individual_experience'):
@@ -337,36 +348,23 @@ class QMIXAgent(LearningAgent):
         Returns:
             奖励值
         """
+        del prev_sugar, prev_position
+        event = self.last_reward_event
+        if event is None:
+            return 0.0
+        reward = float(self.reward_calculator.calculate_from_event(event)["reward"])
+        self.training_stats['rewards'].append(reward)
         current_pos = (self.x, self.y)
-        
-        # 使用统一的奖励计算器
-        # 获取本次收集的spice量（从agent的harvest记录中）
-        spice_collected = getattr(self, '_last_harvest_spice', 0.0)
-        
-        reward_result = self.reward_calculator.calculate_reward(
-            prev_sugar=prev_sugar,
-            current_sugar=self.sugar,
-            prev_position=prev_position,
-            current_position=current_pos,
-            status=self.status,
-            spice_collected=spice_collected,
-            age=self.age,
-            total_collected=self.total_collected,
-            visited_positions=self.visited_positions,
-            environment_size=self.environment_size,
-            component_breakdown=False
-        )
-        
-        reward = reward_result['reward']
-        
-        # 更新探索记录（奖励计算器不修改visited_positions）
         if current_pos not in self.visited_positions:
             self.visited_positions.add(current_pos)
-        
         return reward
     
     def update_epsilon(self) -> None:
-        """更新探索率"""
+        """Hold exploration until gradient updates are allowed to start."""
+        step = int(getattr(self, "_env_step", 0))
+        if step < self.config.learning_starts:
+            self.training_stats['exploration_rate'].append(self.epsilon)
+            return
         self.epsilon = max(
             self.config.epsilon_end, 
             self.epsilon * self.config.epsilon_decay
@@ -374,203 +372,34 @@ class QMIXAgent(LearningAgent):
         self.training_stats['exploration_rate'].append(self.epsilon)
     
     def _process_observation(self, observation: ObservationSpace) -> np.ndarray:
-        """
-        处理观察为神经网络输入
-        
-        Args:
-            observation: 原始观察
-            
-        Returns:
-            处理后的状态向量
-        """
-        try:
-            features = []
-            
-            # 1. 局部视野特征（糖分布）
-            if hasattr(observation, 'local_view') and observation.local_view is not None:
-                local_view = observation.local_view.flatten()
-                # 归一化局部视野（使用默认最大值，如果配置中没有）
-                max_sugar = getattr(self.config, 'max_sugar', 10.0)
-                if max_sugar <= 0:
-                    max_sugar = 1.0
-                local_view = local_view / max_sugar
-                # 检查NaN和Inf
-                local_view = np.nan_to_num(local_view, nan=0.0, posinf=1.0, neginf=0.0)
-                features.extend(local_view)
-            else:
-                # 如果local_view不存在，使用零向量
-                view_size = (self.vision_range * 2 + 1) ** 2
-                features.extend([0.0] * view_size)
-        
-            # 2. 智能体内部状态
-            agent_features = [
-                max(0.0, min(1.0, self.sugar / 50.0)),  # 归一化糖量，限制在[0,1]
-                min(self.age / 500.0, 1.0),  # 年龄归一化，上限500
-                max(0.0, min(1.0, self.metabolism_rate / 3.0)),  # 归一化新陈代谢
-                max(0.0, min(1.0, self.vision_range / 8.0)),  # 归一化视野范围
-                min(len(self.visited_positions) / 100.0, 1.0)  # 探索进度归一化
-            ]
-            features.extend(agent_features)
-            
-            # 3. 相对位置特征
-            grid_center = self.environment_size // 2 if self.environment_size > 0 else 40
-            rel_x = max(-1.0, min(1.0, (self.x - grid_center) / max(1, self.environment_size)))
-            rel_y = max(-1.0, min(1.0, (self.y - grid_center) / max(1, self.environment_size)))
-            features.extend([rel_x, rel_y])
-            
-            # 4. 时间特征（周期性）
-            if hasattr(observation, 'step'):
-                step = observation.step
-                # 添加周期性时间特征
-                features.extend([
-                    np.sin(2 * np.pi * step / 100),
-                    np.cos(2 * np.pi * step / 100)
-                ])
-            else:
-                features.extend([0.0, 1.0])
-            
-            # 转换为固定维度状态向量
-            state = np.array(features, dtype=np.float32)
-            
-            # 检查NaN和Inf
-            if np.any(np.isnan(state)) or np.any(np.isinf(state)):
-                self.logger.warning(f"agent {self.agent_id} state had NaN/Inf; sanitized")
-                state = np.nan_to_num(state, nan=0.0, posinf=1.0, neginf=0.0)
-            
-            # 维度处理
-            state_len = len(state)
-            if state_len != self.state_dim:
-                if state_len > self.state_dim:
-                    # 截断到指定维度
-                    state = state[:self.state_dim]
-                    # 为了避免日志过于嘈杂，这里只在 DEBUG 级别输出详细说明，
-                    # 和 IQLAgent 的行为保持一致，正常运行时不会反复刷 WARNING。
-                    if self.logger.isEnabledFor(logging.DEBUG):
-                        self.logger.debug(
-                            f"状态向量被截断: {state_len} -> {self.state_dim} "
-                            f"(智能体 {self.agent_id})"
-                        )
-                elif state_len < self.state_dim:
-                    # 填充到指定维度
-                    padding = np.zeros(self.state_dim - state_len, dtype=np.float32)
-                    state = np.concatenate([state, padding])
-                    if self.logger.isEnabledFor(logging.DEBUG):
-                        self.logger.debug(
-                            f"状态向量被填充: {state_len} -> {self.state_dim} "
-                            f"(智能体 {self.agent_id})"
-                        )
-            
-            # 验证输出维度
-            if len(state) != self.state_dim:
-                self.logger.error(
-                    f"状态维度错误: {len(state)} != {self.state_dim}，使用零向量"
-                )
-                state = np.zeros(self.state_dim, dtype=np.float32)
-            
-            return state
-            
-        except Exception as e:
-            self.logger.error(f"agent {self.agent_id} _process_observation failed: {e}", exc_info=True)
-            # 返回零向量作为后备
-            return np.zeros(self.state_dim, dtype=np.float32)
+        """Read the shared encoder output. Dimension mismatches are not repaired."""
+        encoded = getattr(observation, "encoded_state", None)
+        if encoded is None:
+            raise ObservationSpecError("observation is missing encoded_state")
+        return require_local_state(encoded, self.state_dim)
 
     def _get_global_state(self, observation: ObservationSpace) -> np.ndarray:
-        """
-        获取全局状态表示（用于混合网络）
-        
-        Args:
-            observation: 观察空间
-            
-        Returns:
-            全局状态向量
-        """
-        try:
-            global_features = []
-            
-            # 1. 环境统计信息
-            if hasattr(observation, 'global_stats') and observation.global_stats:
-                stats = observation.global_stats
-                global_features.extend([
-                    min(stats.get('total_sugar', 0) / 5000.0, 1.0),  # 环境总糖量归一化
-                    min(stats.get('avg_sugar', 0) / 10.0, 1.0),      # 平均糖量归一化
-                    max(0.0, min(1.0, stats.get('agent_diversity', 0)))  # 智能体多样性
-                ])
-            else:
-                global_features.extend([0.0, 0.0, 0.0])
-            
-            # 2. 智能体群体统计
-            if hasattr(observation, 'global_stats') and observation.global_stats and 'agents_by_type' in observation.global_stats:
-                type_counts = observation.global_stats['agents_by_type']
-                total_agents = sum(type_counts.values())
-                
-                # 各类型智能体比例
-                for agent_type in ['rule_based', 'iql', 'qmix', 'conservative', 'exploratory', 'adaptive']:
-                    count = type_counts.get(agent_type, 0)
-                    proportion = count / max(1, total_agents)
-                    global_features.append(max(0.0, min(1.0, proportion)))
-            else:
-                # 如果没有统计信息，使用零向量
-                global_features.extend([0.0] * 6)
-            
-            # 3. 时间信息
-            if hasattr(observation, 'step'):
-                step = observation.step
-                global_features.extend([
-                    min(step / 10000.0, 1.0),  # 步数归一化
-                    np.sin(2 * np.pi * step / 1000),
-                    np.cos(2 * np.pi * step / 1000)
-                ])
-            else:
-                global_features.extend([0.0, 0.0, 1.0])
-            
-            # 转换为numpy数组
-            global_state = np.array(global_features, dtype=np.float32)
-            
-            # 检查NaN和Inf
-            if np.any(np.isnan(global_state)) or np.any(np.isinf(global_state)):
-                self.logger.warning(f"agent {self.agent_id} global_state had NaN/Inf; sanitized")
-                global_state = np.nan_to_num(global_state, nan=0.0, posinf=1.0, neginf=0.0)
-            
-            # 确保维度一致性
-            if len(global_state) < self.state_dim:
-                padding = np.zeros(self.state_dim - len(global_state), dtype=np.float32)
-                global_state = np.concatenate([global_state, padding])
-            elif len(global_state) > self.state_dim:
-                global_state = global_state[:self.state_dim]
-            
-            return global_state
-            
-        except Exception as e:
-            self.logger.error(f"agent {self.agent_id} _get_global_state failed: {e}", exc_info=True)
-            # 返回零向量作为后备
-            return np.zeros(self.state_dim, dtype=np.float32)
-    
+        """Fixed-width mixer state. Never padded up to the local state width."""
+        encoded = getattr(observation, "global_state_vec", None)
+        if encoded is None:
+            raise ObservationSpecError("observation is missing global_state_vec")
+        vector = np.asarray(encoded, dtype=np.float32).reshape(-1)
+        expected = int(getattr(self.config, "global_state_dim", GLOBAL_STATE_DIM))
+        if vector.shape != (expected,):
+            raise ObservationSpecError(
+                f"global state length {vector.shape[0]} != {expected}"
+            )
+        return vector
+
     def _action_idx_to_position(self, action_idx: int) -> Tuple[int, int]:
-        """
-        将动作索引转换为位置坐标
-        
-        Args:
-            action_idx: 动作索引 (0-7对应8个方向)
-            
-        Returns:
-            目标位置 (x, y)
-        """
-        # 验证动作索引有效性
-        if not (0 <= action_idx < len(self.directions)):
-            self.logger.warning(f"invalid action_idx={action_idx}; using default action")
-            action_idx = 0  # 默认动作
-        
-        dx, dy = self.directions[action_idx]
-        
-        # 计算新位置（考虑边界环绕）
-        new_x = (self.x + dx) % self.environment_size
-        new_y = (self.y + dy) % self.environment_size
-        
-        # 记录移动决策
-        self.logger.debug(f"agent {self.agent_id} move ({self.x}, {self.y}) -> ({new_x}, {new_y})")
-        
+        """Map a discrete action through the shared toroidal codec."""
+        codec = ActionCodec(self.environment_size)
+        new_x, new_y = codec.index_to_position(self.x, self.y, int(action_idx))
+        self.logger.debug(
+            f"agent {self.agent_id} move ({self.x}, {self.y}) -> ({new_x}, {new_y})"
+        )
         return new_x, new_y
-    
+
     def get_q_values(self, observation: ObservationSpace) -> np.ndarray:
         """
         获取Q值（实现抽象方法）
@@ -737,6 +566,7 @@ class QMIXAgent(LearningAgent):
             'training_steps': self.training_step,
             'visited_positions': len(self.visited_positions),
             'exploration_rate': self.epsilon,
+            'policy_entropy': self.last_policy_entropy,
             'status': self.status.value
         }
     
@@ -749,7 +579,6 @@ class QMIXAgent(LearningAgent):
         self.last_action_idx = None  # 离散动作索引
         self.last_global_state = None
         self.pending_experience = None
-        self.epsilon = self.config.epsilon_start
         
         # 重置探索记录（保留初始位置）
         self.visited_positions = set([(x, y)])

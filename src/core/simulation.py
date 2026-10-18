@@ -10,6 +10,7 @@ from enum import Enum
 import time
 from collections import deque
 import logging
+import random
 
 from src.core.agent_base import BaseAgent, AgentStatus, AgentType
 from src.core.agent_factory import get_agent_factory
@@ -69,6 +70,7 @@ class TrainingMetrics:
     # 奖励相关统计（用于 Reward Trend 可视化）
     avg_reward: float = 0.0
     recent_reward: float = 0.0
+    policy_entropy: float = 0.0
 
 
 @dataclass
@@ -102,25 +104,33 @@ class AgentManager:
         if agent in self.agents:
             self.agents.remove(agent)
     
-    def update_agents(self, environment) -> None:
-        """更新所有智能体状态"""
-        dead_agents = []
-        
+    def update_agents(self, environment, episode_cutoff: bool = False) -> None:
+        """Update every slot. Death and episode boundaries respawn in place."""
+        positions = []
         for agent in self.agents:
+            if agent.status == AgentStatus.ALIVE:
+                positions.append((agent.x, agent.y))
+        environment.agent_positions = positions
+
+        for agent in list(self.agents):
+            agent.episode_cutoff = episode_cutoff
+            agent._env_step = int(getattr(environment, "step", 0))
             if agent.status != AgentStatus.ALIVE:
-                continue
-            
+                self._respawn(agent, environment)
             try:
                 is_alive = agent.update(environment)
-                if not is_alive:
-                    dead_agents.append(agent)
             except Exception as e:
                 logging.warning(f"Agent {agent.agent_id} update failed: {e}")
-                dead_agents.append(agent)
-        
-        # 移除死亡智能体
-        for agent in dead_agents:
-            self.remove_agent(agent)
+                self._respawn(agent, environment)
+                continue
+            if (not is_alive) or episode_cutoff:
+                self._respawn(agent, environment)
+            agent.episode_cutoff = False
+
+    def _respawn(self, agent: BaseAgent, environment) -> None:
+        size = max(int(getattr(environment, "size", 1)), 1)
+        agent.reset(random.randrange(size), random.randrange(size))
+        agent.episode_cutoff = False
     
     def clear(self) -> None:
         """清空所有智能体"""
@@ -204,8 +214,11 @@ class MARLSimulation:
         self.marl_trainers: Dict[str, Any] = {}
         
         # 初始化 - 确保环境大小与配置一致
+        self.protocol = None
         self._initialize_environment()
+        self._install_protocol()
         self._initialize_agents(agent_configs)
+        self._recreate_trainers()
         
         # 性能监控
         self._frame_times: Deque[float] = deque(maxlen=60)
@@ -269,6 +282,39 @@ class MARLSimulation:
             self.environment.spice_map.fill(0.0)
         if not resource_enabled.get('hazard', True):
             self.environment.hazard_map.fill(0.0)
+
+    def _install_protocol(self, new_config: Optional[Dict[str, Any]] = None, algorithm_mode: str = "iql_qmix") -> None:
+        """Build the frozen comparison protocol and hand it to the agent factory."""
+        from src.core.experiment_protocol import ExperimentProtocol, default_protocol
+
+        if new_config and isinstance(new_config.get("protocol"), dict):
+            self.protocol = ExperimentProtocol.from_dict(new_config["protocol"])
+        else:
+            resource_enabled = getattr(self, "resource_enabled", {"sugar": True, "spice": True, "hazard": True})
+            hazard_decay = 0.0
+            hazard_fraction = 0.33
+            spice_growth = 0.02
+            max_spice = 6.0
+            if self.environment is not None:
+                hazard_decay = float(getattr(self.environment, "hazard_decay_rate", hazard_decay))
+                hazard_fraction = float(getattr(self.environment, "hazard_target_fraction", hazard_fraction))
+                spice_growth = float(getattr(self.environment, "spice_growth_rate", spice_growth))
+                max_spice = float(getattr(self.environment, "max_spice", max_spice))
+            self.protocol = default_protocol(
+                grid_size=self.grid_size,
+                sugar_growth_rate=self.sugar_growth_rate,
+                max_sugar=self.max_sugar,
+                spice_growth_rate=spice_growth,
+                max_spice=max_spice,
+                hazard_decay_rate=hazard_decay,
+                hazard_target_fraction=hazard_fraction,
+                sugar_enabled=bool(resource_enabled.get("sugar", True)),
+                spice_enabled=bool(resource_enabled.get("spice", True)),
+                hazard_enabled=bool(resource_enabled.get("hazard", True)),
+                algorithm_mode=algorithm_mode,
+            )
+        self.agent_factory.set_protocol(self.protocol)
+        logging.info(f"Experiment protocol installed: {self.protocol.protocol_hash()}")
     
     def _initialize_agents(self, agent_configs: Optional[List[Any]] = None) -> None:
         """初始化智能体"""
@@ -458,6 +504,8 @@ class MARLSimulation:
             self.agent_factory.set_grid_size(self.grid_size)
         except Exception:
             pass
+
+        self._install_protocol(new_config)
         
         # 重新初始化智能体
         self._initialize_agents(agent_configs)
@@ -515,6 +563,41 @@ class MARLSimulation:
             except Exception as e:
                 logging.warning(f"Failed to reset agent {agent.agent_id} state: {e}")
     
+    def _recreate_iql_trainer(self) -> None:
+        """One shared IQL network for every independent learner."""
+        iql_agents = self.agent_manager.get_agents_by_type("independent_q_learning")
+        if not iql_agents:
+            return
+        from src.marl.iql_trainer import IQLTrainer
+
+        sample = iql_agents[0]
+        config = getattr(sample, "config", None)
+        view_size = 11
+        if self.protocol is not None:
+            view_size = self.protocol.body.vision_range * 2 + 1
+            trainer_config = {
+                "learning_rate": self.protocol.matched.learning_rate,
+                "gamma": self.protocol.matched.gamma,
+                "tau": self.protocol.matched.tau,
+                "batch_size": self.protocol.matched.batch_size,
+                "replay_buffer_size": self.protocol.matched.replay_buffer_size,
+                "learning_starts": self.protocol.matched.learning_starts,
+                "train_frequency": self.protocol.matched.train_frequency,
+                "target_update_frequency": self.protocol.matched.target_update_frequency,
+                "per_alpha": self.protocol.matched.per_alpha,
+                "per_beta": self.protocol.matched.per_beta,
+            }
+            state_dim = self.protocol.local_state_dim
+        else:
+            trainer_config = {}
+            state_dim = getattr(sample, "state_dim", 367)
+        action_dim = getattr(sample, "action_dim", 8)
+        trainer = IQLTrainer(state_dim, action_dim, view_size, trainer_config)
+        for agent in iql_agents:
+            if hasattr(agent, "set_trainer"):
+                agent.set_trainer(trainer)
+        self.register_trainer("independent_q_learning", trainer)
+
     def _recreate_trainers(self) -> None:
         """
         重新创建训练器并绑定到新的智能体
@@ -522,6 +605,7 @@ class MARLSimulation:
         这个方法会在 reset 后自动调用，确保训练器正确绑定到新创建的智能体。
         """
         try:
+            self._recreate_iql_trainer()
             # 检查是否有 QMIX 智能体需要训练器
             qmix_agents = self.agent_manager.get_agents_by_type("qmix")
             if qmix_agents and len(qmix_agents) > 0:
@@ -578,6 +662,15 @@ class MARLSimulation:
                 num_agents = len(qmix_agents)
                 
                 # 创建新的 QMIX 训练器
+                if self.protocol is not None:
+                    trainer_config = dict(trainer_config)
+                    trainer_config["global_state_dim"] = self.protocol.global_state_dim
+                    trainer_config["per_alpha"] = self.protocol.matched.per_alpha
+                    trainer_config["per_beta"] = self.protocol.matched.per_beta
+                    trainer_config["view_size"] = self.protocol.body.vision_range * 2 + 1
+                    trainer_config["learning_starts"] = self.protocol.matched.learning_starts
+                    trainer_config["train_frequency"] = self.protocol.matched.train_frequency
+                    state_dim = self.protocol.local_state_dim
                 qmix_trainer = QMIXTrainer(
                     num_agents=num_agents,
                     state_dim=state_dim,
@@ -709,42 +802,30 @@ class MARLSimulation:
     def _update_agents(self) -> None:
         """更新所有智能体，并记录耗时"""
         update_start = time.time()
-        self.agent_manager.update_agents(self.environment)
+        if self.environment is not None:
+            alive = sum(1 for agent in self.agent_manager.agents if agent.status == AgentStatus.ALIVE)
+            self.environment.alive_agent_count = alive
+            self.environment.step = self.step_count
+        episode_length = 256
+        if self.protocol is not None:
+            episode_length = int(self.protocol.matched.episode_length)
+        cutoff = self.step_count > 0 and episode_length > 0 and self.step_count % episode_length == 0
+        self.agent_manager.update_agents(self.environment, episode_cutoff=cutoff)
         self.performance_metrics.agent_update_time = (time.time() - update_start) * 1000
     
     def _update_marl_training(self) -> None:
-        """更新MARL训练"""
-        if not self.marl_trainers or self.step_count % 4 != 0:  # 每4步训练一次
+        """Ask every learner to update. The learner owns its own frequency."""
+        if not self.marl_trainers:
             return
         
-        # 创建训练器列表的副本，避免在迭代时修改字典
         trainers_to_update = list(self.marl_trainers.items())
         
         for agent_type, trainer in trainers_to_update:
             train_ui_log = _ui_logger_for_marl_trainer(agent_type)
             try:
-                # 验证训练器是否有效
-                if trainer is None:
-                    train_ui_log.warning(f"{agent_type} trainer is None, skipping")
+                if trainer is None or not hasattr(trainer, 'train_step'):
                     continue
-                
-                # 验证训练器是否有必要的方法
-                if not hasattr(trainer, 'train_step'):
-                    train_ui_log.warning(f"{agent_type} trainer has no train_step, skipping")
-                    continue
-                
-                # 检查训练器是否引用了已删除的智能体（通过检查 num_agents）
-                if hasattr(trainer, 'num_agents'):
-                    actual_agents = len(self.agent_manager.get_agents_by_type(agent_type))
-                    if trainer.num_agents != actual_agents:
-                        train_ui_log.warning(
-                            f"{agent_type} trainer num_agents ({trainer.num_agents}) "
-                            f"!= alive agents ({actual_agents}), skipping training"
-                        )
-                        continue
-                
-                # 执行训练步骤
-                trainer.train_step()
+                trainer.train_step(self.step_count)
                 
             except Exception as e:
                 tlog = getattr(trainer, "logger", None) if trainer is not None else None
@@ -964,6 +1045,11 @@ class MARLSimulation:
                 for info in training_infos
                 if 'agent_id' in info
             ]
+            policy_entropies = [
+                float(info['policy_entropy'])
+                for info in training_infos
+                if 'policy_entropy' in info
+            ]
             training_steps = [info.get('training_steps', 0) for info in training_infos]
             # 奖励统计（平均奖励 + 最近一次奖励）
             reward_values = [
@@ -1005,6 +1091,7 @@ class MARLSimulation:
                 recent_q_value=recent_q_value,
                 avg_reward=avg_reward,
                 recent_reward=recent_reward,
+                policy_entropy=float(np.mean(policy_entropies)) if policy_entropies else 0.0,
             )
             
             self.training_metrics[agent_type] = metrics
@@ -1041,6 +1128,7 @@ class MARLSimulation:
             'performance': self._get_performance_data(),
             'configuration': self._get_configuration_data(),
             'training_metrics': self._serialize_training_metrics(),
+            'protocol_hash': self.protocol.protocol_hash() if self.protocol is not None else None,
             'simulation': self  # 添加simulation对象引用，用于网络状态可视化
         }
     
@@ -1153,6 +1241,7 @@ class MARLSimulation:
                 'recent_q_value': metrics.recent_q_value,
                 'avg_reward': metrics.avg_reward,
                 'recent_reward': metrics.recent_reward,
+                'policy_entropy': metrics.policy_entropy,
             }
         return serialized
     
@@ -1304,6 +1393,13 @@ class SimulationFactory:
             state_dim = getattr(sample_agent, "state_dim", qmix_config["state_dim"])
             action_dim = getattr(sample_agent, "action_dim", qmix_config["action_dim"])
 
+            if sim.protocol is not None:
+                qmix_config = dict(qmix_config)
+                qmix_config["view_size"] = sim.protocol.body.vision_range * 2 + 1
+                qmix_config["global_state_dim"] = sim.protocol.global_state_dim
+                qmix_config["per_alpha"] = sim.protocol.matched.per_alpha
+                qmix_config["per_beta"] = sim.protocol.matched.per_beta
+                state_dim = sim.protocol.local_state_dim
             qmix_trainer = QMIXTrainer(
                 num_agents=len(qmix_agents),
                 state_dim=state_dim,
@@ -1385,6 +1481,13 @@ class SimulationFactory:
             state_dim = getattr(sample_agent, "state_dim", qmix_config["state_dim"])
             action_dim = getattr(sample_agent, "action_dim", qmix_config["action_dim"])
 
+            if sim.protocol is not None:
+                qmix_config = dict(qmix_config)
+                qmix_config["view_size"] = sim.protocol.body.vision_range * 2 + 1
+                qmix_config["global_state_dim"] = sim.protocol.global_state_dim
+                qmix_config["per_alpha"] = sim.protocol.matched.per_alpha
+                qmix_config["per_beta"] = sim.protocol.matched.per_beta
+                state_dim = sim.protocol.local_state_dim
             qmix_trainer = QMIXTrainer(
                 num_agents=len(qmix_agents),
                 state_dim=state_dim,

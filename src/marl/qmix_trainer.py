@@ -14,7 +14,9 @@ import random
 import time
 import logging
 
-from src.marl.networks import QMIXAgentNetwork, QMIXMixingNetwork
+from src.core.experiment_protocol import EGO_FEATURE_DIM, GLOBAL_STATE_DIM
+from src.marl.losses import weighted_mse
+from src.marl.networks import QMIXMixingNetwork, SpatialQNetwork
 from src.marl.replay_buffer import Experience, PriorityReplayBuffer
 
 
@@ -42,6 +44,7 @@ class QMIXTrainer:
         self.num_agents = num_agents
         self.state_dim = state_dim
         self.action_dim = action_dim
+        self.global_state_dim = int((config or {}).get("global_state_dim", GLOBAL_STATE_DIM))
         
         # 配置参数
         self.config = config or {}
@@ -50,7 +53,9 @@ class QMIXTrainer:
         self.learning_rate = self.config.get('learning_rate', 0.0005)
         self.tau = self.config.get('tau', 0.005)
         self.target_update_frequency = self.config.get('target_update_frequency', 200)
-        self.learning_starts = self.config.get('learning_starts', 1000)
+        self.learning_starts = self.config.get('learning_starts', 128)
+        self.train_frequency = int(self.config.get('train_frequency', 4))
+        self.view_size = int(self.config.get('view_size', 11))
         
         # 网络配置
         self.agent_hidden_dims = self.config.get('agent_hidden_dims', [64, 64])
@@ -68,7 +73,9 @@ class QMIXTrainer:
         
         # 经验回放
         self.replay_buffer = PriorityReplayBuffer(
-            capacity=self.config.get('replay_buffer_size', 10000)
+            capacity=self.config.get('replay_buffer_size', 10000),
+            alpha=self.config.get('per_alpha', 0.6),
+            beta=self.config.get('per_beta', 0.4),
         )
         
         # 将网络移动到设备（必须在网络初始化之后）
@@ -96,29 +103,29 @@ class QMIXTrainer:
     def _initialize_networks(self) -> None:
         """初始化所有网络"""
         # 个体Q网络（所有智能体共享参数）
-        self.q_network = QMIXAgentNetwork(
-            state_dim=self.state_dim,
+        self.q_network = SpatialQNetwork(
+            view_size=self.view_size,
             action_dim=self.action_dim,
-            hidden_dims=self.agent_hidden_dims
+            ego_dim=EGO_FEATURE_DIM,
         )
         
-        self.target_q_network = QMIXAgentNetwork(
-            state_dim=self.state_dim,
+        self.target_q_network = SpatialQNetwork(
+            view_size=self.view_size,
             action_dim=self.action_dim,
-            hidden_dims=self.agent_hidden_dims
+            ego_dim=EGO_FEATURE_DIM,
         )
         self.target_q_network.load_state_dict(self.q_network.state_dict())
         
         # 混合网络
         self.mixing_network = QMIXMixingNetwork(
             num_agents=self.num_agents,
-            state_dim=self.state_dim,  # 全局状态维度
+            state_dim=self.global_state_dim,
             mixing_hidden_dim=self.mixing_hidden_dim
         )
         
         self.target_mixing_network = QMIXMixingNetwork(
             num_agents=self.num_agents,
-            state_dim=self.state_dim,
+            state_dim=self.global_state_dim,
             mixing_hidden_dim=self.mixing_hidden_dim
         )
         self.target_mixing_network.load_state_dict(self.mixing_network.state_dict())
@@ -130,7 +137,7 @@ class QMIXTrainer:
         )
         
         # 损失函数
-        self.loss_fn = nn.MSELoss()
+        self.loss_fn = nn.MSELoss(reduction="none")
 
     def _move_networks_to_device(self) -> None:
         """将网络移动到指定设备"""
@@ -221,11 +228,10 @@ class QMIXTrainer:
             return False
         
         if state_shape[0] != self.state_dim:
-            # 允许维度不匹配，但会记录警告（在_form_joint_experience中修复）
-            self.logger.debug(
-                f"state dim mismatch: {state_shape[0]} != {self.state_dim}; "
-                f"will try to fix when forming joint experience"
+            self.logger.error(
+                f"state dim mismatch: {state_shape[0]} != {self.state_dim}"
             )
+            return False
         
         # 检查动作类型和范围（QMIX 期望的是“离散动作索引”）
         action = experience['action']
@@ -265,14 +271,11 @@ class QMIXTrainer:
         Args:
             global_state: 全局状态向量
         """
-        if global_state.shape != (self.state_dim,):
-            self.logger.warning(f"global_state shape mismatch: {global_state.shape} != ({self.state_dim},)")
-            # 尝试调整维度
-            if len(global_state) < self.state_dim:
-                padding = np.zeros(self.state_dim - len(global_state))
-                global_state = np.concatenate([global_state, padding])
-            else:
-                global_state = global_state[:self.state_dim]
+        if global_state.shape != (self.global_state_dim,):
+            self.logger.error(
+                f"global_state shape mismatch: {global_state.shape} != ({self.global_state_dim},)"
+            )
+            return
         
         self.current_global_state = global_state
         self.global_state_history.append(global_state)
@@ -311,22 +314,13 @@ class QMIXTrainer:
                     self.agent_experiences.clear()
                     return
                 
-                # 确保状态维度正确
-                if len(exp['state']) != self.state_dim:
-                    self.logger.warning(
+                if len(exp['state']) != self.state_dim or len(exp['next_state']) != self.state_dim:
+                    self.logger.error(
                         f"agent {agent_id} state dim mismatch: "
-                        f"{len(exp['state'])} != {self.state_dim}; attempting fix"
+                        f"{len(exp['state'])} != {self.state_dim}; dropping joint experience"
                     )
-                    # 修复状态维度
-                    if len(exp['state']) > self.state_dim:
-                        exp['state'] = exp['state'][:self.state_dim]
-                        exp['next_state'] = exp['next_state'][:self.state_dim] if len(exp['next_state']) > self.state_dim else exp['next_state']
-                    else:
-                        padding = np.zeros(self.state_dim - len(exp['state']), dtype=np.float32)
-                        exp['state'] = np.concatenate([exp['state'], padding])
-                        if len(exp['next_state']) < self.state_dim:
-                            next_padding = np.zeros(self.state_dim - len(exp['next_state']), dtype=np.float32)
-                            exp['next_state'] = np.concatenate([exp['next_state'], next_padding])
+                    self.agent_experiences.clear()
+                    return
                 
                 states.append(exp['state'])
                 actions.append(exp['action'])
@@ -339,21 +333,13 @@ class QMIXTrainer:
                     global_state = exp.get('global_state')
                     next_global_state = exp.get('next_global_state', global_state)  # 后备
                     
-                    # 验证全局状态
-                    if global_state is not None and len(global_state) != self.state_dim:
-                        self.logger.warning(
-                            f"global_state dim mismatch: {len(global_state)} != {self.state_dim}; attempting fix"
+                    if global_state is not None and len(global_state) != self.global_state_dim:
+                        self.logger.error(
+                            f"global_state dim mismatch: {len(global_state)} != {self.global_state_dim}; "
+                            f"dropping joint experience"
                         )
-                        if len(global_state) > self.state_dim:
-                            global_state = global_state[:self.state_dim]
-                            if next_global_state is not None and len(next_global_state) > self.state_dim:
-                                next_global_state = next_global_state[:self.state_dim]
-                        else:
-                            padding = np.zeros(self.state_dim - len(global_state), dtype=np.float32)
-                            global_state = np.concatenate([global_state, padding])
-                            if next_global_state is not None and len(next_global_state) < self.state_dim:
-                                next_padding = np.zeros(self.state_dim - len(next_global_state), dtype=np.float32)
-                                next_global_state = np.concatenate([next_global_state, next_padding])
+                        self.agent_experiences.clear()
+                        return
             
             # 如果没有全局状态，使用当前存储的
             if global_state is None and self.current_global_state is not None:
@@ -368,8 +354,8 @@ class QMIXTrainer:
                 reward=np.array(rewards),  # [num_agents]
                 next_state=np.array(next_states),  # [num_agents, state_dim]
                 done=np.array(dones),  # [num_agents]
-                global_state=global_state if global_state is not None else np.zeros(self.state_dim),
-                next_global_state=next_global_state if next_global_state is not None else np.zeros(self.state_dim),
+                global_state=global_state if global_state is not None else np.zeros(self.global_state_dim, dtype=np.float32),
+                next_global_state=next_global_state if next_global_state is not None else np.zeros(self.global_state_dim, dtype=np.float32),
                 timestamp=time.time()
             )
             
@@ -395,18 +381,13 @@ class QMIXTrainer:
         """
         if len(self.global_state_history) > 0:
             return self.global_state_history[-1]  # 使用最新状态
-        return np.zeros(self.state_dim)
+        return np.zeros(self.global_state_dim, dtype=np.float32)
     
-    def train_step(self) -> Optional[float]:
-        """
-        执行QMIX训练步骤
-        
-        Returns:
-            损失值（如果进行了训练）
-        """
-        # 检查是否开始训练
-        if (len(self.replay_buffer) < max(self.batch_size, self.learning_starts) or 
-            self.training_step % 4 != 0):  # 每4步训练一次
+    def train_step(self, env_step: int = 0) -> Optional[float]:
+        """Gradient step on the environment clock. A failed step does not freeze the clock."""
+        if len(self.replay_buffer) < max(self.batch_size, self.learning_starts):
+            return None
+        if int(env_step) % self.train_frequency != 0:
             return None
         
         try:
@@ -454,9 +435,9 @@ class QMIXTrainer:
                 )
                 return None
             
-            if global_states.dim() != 2 or global_states.size(1) != self.state_dim:
+            if global_states.dim() != 2 or global_states.size(1) != self.global_state_dim:
                 self.logger.error(
-                    f"global_states batch shape error: expected [batch_size, {self.state_dim}], "
+                    f"global_states batch shape error: expected [batch_size, {self.global_state_dim}], "
                     f"got {list(global_states.shape)}"
                 )
                 return None
@@ -523,9 +504,7 @@ class QMIXTrainer:
                 )
                 weights = torch.ones(batch_size, device=self.device)
             
-            # 计算加权损失
-            loss_per_sample = self.loss_fn(current_q_tot, target_q_tot)
-            weighted_loss = (weights * loss_per_sample).mean()
+            weighted_loss = weighted_mse(current_q_tot, target_q_tot, weights)
             
             # === 反向传播 ===
             self.optimizer.zero_grad()
@@ -559,7 +538,13 @@ class QMIXTrainer:
             # === 记录统计信息 ===
             self.training_stats['losses'].append(weighted_loss.item())
             self.training_stats['q_values'].append(current_q_tot.mean().item())
-            self.training_stats['td_errors'].extend(td_errors.tolist())
+            if isinstance(td_errors, np.ndarray):
+                td_list = td_errors.reshape(-1).tolist()
+            elif isinstance(td_errors, list):
+                td_list = td_errors
+            else:
+                td_list = [float(td_errors)]
+            self.training_stats['td_errors'].extend(td_list)
             self.training_stats['mixing_losses'].append(weighted_loss.item())
             
             self.training_step += 1

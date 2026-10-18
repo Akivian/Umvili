@@ -90,6 +90,58 @@ class MLP(nn.Module):
         return self.network(x)
 
 
+class SpatialQNetwork(nn.Module):
+    """
+    Q network for a local grid.
+
+    The flat vector is the protocol encoder output: three local channels
+    followed by a short ego vector. Convolution sees neighboring cells;
+    the ego features never enter the spatial stack.
+    """
+
+    def __init__(
+        self,
+        view_size: int,
+        action_dim: int,
+        ego_dim: int = 4,
+        conv_channels: Tuple[int, int] = (16, 32),
+    ):
+        super().__init__()
+        self.view_size = int(view_size)
+        self.ego_dim = int(ego_dim)
+        self.spatial_dim = 3 * self.view_size * self.view_size
+        self.conv = nn.Sequential(
+            nn.Conv2d(3, conv_channels[0], kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(conv_channels[0], conv_channels[1], kernel_size=3, padding=1),
+            nn.ReLU(),
+        )
+        self.pool = nn.AdaptiveAvgPool2d(4)
+        pooled = conv_channels[1] * 4 * 4
+        self.ego = nn.Sequential(nn.Linear(self.ego_dim, 32), nn.ReLU())
+        self.head = nn.Sequential(
+            nn.Linear(pooled + 32, 128),
+            nn.ReLU(),
+            nn.Linear(128, action_dim),
+        )
+        for module in self.modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.orthogonal_(module.weight, gain=math.sqrt(2))
+                nn.init.constant_(module.bias, 0.0)
+            elif isinstance(module, nn.Linear):
+                nn.init.orthogonal_(module.weight, gain=math.sqrt(2))
+                nn.init.constant_(module.bias, 0.0)
+        nn.init.orthogonal_(self.head[-1].weight, gain=0.01)
+
+    def forward(self, flat: torch.Tensor) -> torch.Tensor:
+        if flat.dim() == 1:
+            flat = flat.unsqueeze(0)
+        spatial = flat[:, : self.spatial_dim].reshape(-1, 3, self.view_size, self.view_size)
+        ego = flat[:, self.spatial_dim : self.spatial_dim + self.ego_dim]
+        features = self.pool(self.conv(spatial)).reshape(flat.shape[0], -1)
+        return self.head(torch.cat([features, self.ego(ego)], dim=1))
+
+
 class QNetwork(MLP):
     """
     Q值网络

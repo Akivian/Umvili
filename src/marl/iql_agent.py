@@ -22,7 +22,14 @@ from dataclasses import dataclass
 import logging
 
 from src.core.agent_base import LearningAgent, ObservationSpace, AgentType, AgentStatus
-from src.core.reward_calculator import RewardCalculator, RewardConfig
+from src.core.experiment_protocol import (
+    ActionCodec,
+    RewardSpec,
+    epsilon_greedy_policy,
+    policy_entropy_bits,
+)
+from src.core.observation_encoder import ObservationSpecError, require_local_state
+from src.core.reward_calculator import RewardCalculator
 from src.marl.networks import QNetwork, DuelingQNetwork, NoisyQNetwork
 from src.marl.replay_buffer import Experience, PriorityReplayBuffer
 from src.config.simulation_config import SimulationConfig
@@ -34,28 +41,31 @@ GRID_SIZE = 80
 class IQLConfig:
     """IQL智能体配置数据类"""
     # 网络配置
-    state_dim: int = 64
+    state_dim: int = 3 * 11 * 11 + 4
     action_dim: int = 8
     hidden_dims: List[int] = None
     network_type: str = "dqn"  # dqn, dueling, noisy
     use_double_dqn: bool = True
     
-    # 学习参数
-    learning_rate: float = 0.001
-    gamma: float = 0.95
+    # 学习参数（默认值与 ExperimentProtocol 匹配层一致）
+    learning_rate: float = 5e-4
+    gamma: float = 0.99
     tau: float = 0.01  # 目标网络软更新参数
     
     # 探索参数
     epsilon_start: float = 1.0
-    epsilon_end: float = 0.01
-    epsilon_decay: float = 0.995
+    epsilon_end: float = 0.05
+    per_alpha: float = 0.6
+    per_beta: float = 0.4
     
     # 训练参数
     batch_size: int = 32
     replay_buffer_size: int = 10000
-    learning_starts: int = 1000
+    learning_starts: int = 128
     train_frequency: int = 4
     target_update_frequency: int = 100
+    shared_parameters: bool = False
+    epsilon_decay: float = 0.998
     
     def __post_init__(self):
         if self.hidden_dims is None:
@@ -127,32 +137,23 @@ class IQLAgent(LearningAgent):
         self.visited_positions = set([(self.x, self.y)])  # 探索记录
         self._sugar_collected_this_step = 0.0  # 当前步骤收集的糖量
         
-        # 初始化奖励计算器
-        reward_config = RewardConfig(
-            sugar_collection_multiplier=2.0,
-            sugar_consumption_penalty=0.1,
-            exploration_reward=0.5,
-            survival_reward=0.02,
-            efficiency_multiplier=0.1,
-            wealth_threshold_1=25.0,
-            wealth_reward_1=0.1,
-            wealth_threshold_2=50.0,
-            wealth_reward_2=0.2,
-            movement_cost=0.05,
-            death_penalty=5.0,
-            boundary_penalty=0.01,
-            min_reward=-5.0,
-            max_reward=5.0
-        )
-        self.reward_calculator = RewardCalculator(reward_config)
+        self.protocol = None
+        self.reward_calculator = RewardCalculator.from_spec(RewardSpec())
+        self.last_policy_entropy = 0.0
         
-        # 初始化网络
-        self._initialize_networks()
-        
-        # 经验回放
-        self.replay_buffer = PriorityReplayBuffer(
-            capacity=self.config.replay_buffer_size
-        )
+        self.trainer = None
+        if self.config.shared_parameters:
+            self.q_network = None
+            self.target_network = None
+            self.optimizer = None
+            self.replay_buffer = None
+        else:
+            self._initialize_networks()
+            self.replay_buffer = PriorityReplayBuffer(
+                capacity=self.config.replay_buffer_size,
+                alpha=self.config.per_alpha,
+                beta=self.config.per_beta,
+            )
         
         # 训练统计
         self.training_stats = {
@@ -167,6 +168,22 @@ class IQLAgent(LearningAgent):
             f"IQL agent initialized: {self.name} "
             f"(network={self.config.network_type}, actions={self.action_dim})"
         )
+
+    def set_trainer(self, trainer: Any) -> None:
+        """Use the shared IQL learner. Local TD updates are then disabled."""
+        self.trainer = trainer
+        if trainer is not None and getattr(trainer, "q_network", None) is not None:
+            self.q_network = trainer.q_network
+            self.target_network = trainer.target_q_network
+
+    def bind_protocol(self, protocol) -> None:
+        """Attach the run protocol. Reward weights come only from this object."""
+        self.protocol = protocol
+        self.reward_calculator = RewardCalculator.from_spec(protocol.reward)
+        if self.state_dim != protocol.local_state_dim:
+            raise ObservationSpecError(
+                f"IQL state_dim {self.state_dim} != protocol {protocol.local_state_dim}"
+            )
     
     def _initialize_networks(self) -> None:
         """初始化Q网络和目标网络"""
@@ -347,6 +364,13 @@ class IQLAgent(LearningAgent):
             # 更新状态记录（确保是numpy数组）
             self.last_state = np.array(state, dtype=np.float32)
             self.last_action_idx = int(action_idx)  # 存储动作索引（整数）
+            q_for_policy = None
+            if self.q_network is not None and len(state) == self.state_dim:
+                with torch.no_grad():
+                    q_for_policy = self.q_network(torch.FloatTensor(state).unsqueeze(0)).numpy().flatten()
+            self.last_policy_entropy = policy_entropy_bits(
+                epsilon_greedy_policy(q_for_policy, self.epsilon, self.action_dim)
+            )
             
             return action
             
@@ -381,17 +405,24 @@ class IQLAgent(LearningAgent):
                 reward = self._calculate_reward()
                 self.last_experience.reward = reward
                 
-                # 如果智能体死亡，标记为终止状态
-                if not is_alive:
+                if (not is_alive) or getattr(self, "episode_cutoff", False):
                     self.last_experience.done = True
                 
-                # 添加到经验回放
-                self.replay_buffer.add(self.last_experience)
+                if self.trainer is not None:
+                    self.trainer.store({
+                        "state": self.last_experience.state,
+                        "action": self.last_experience.action,
+                        "reward": self.last_experience.reward,
+                        "next_state": self.last_experience.next_state,
+                        "done": self.last_experience.done,
+                        "agent_id": self.agent_id,
+                    })
+                elif self.replay_buffer is not None:
+                    self.replay_buffer.add(self.last_experience)
                 self.logger.debug(f"agent {self.agent_id} store experience reward={reward:.3f}")
                 self.last_experience = None
             
-            # 学习（基于配置的频率）
-            if self.training_step % self.config.train_frequency == 0:
+            if self.trainer is None and self.training_step % self.config.train_frequency == 0:
                 self.learn({})
             
             # 更新探索率（在learn中也会更新，但这里确保即使不学习也更新）
@@ -409,7 +440,11 @@ class IQLAgent(LearningAgent):
             return False
 
     def _update_epsilon(self) -> None:
-        """更新探索率"""
+        """Hold exploration until the replay buffer is allowed to train."""
+        step = int(getattr(self, "_env_step", self.training_step))
+        if step < self.config.learning_starts:
+            self.training_stats['exploration_rate'].append(self.epsilon)
+            return
         self.epsilon = max(
             self.config.epsilon_end, 
             self.epsilon * self.config.epsilon_decay
@@ -439,13 +474,7 @@ class IQLAgent(LearningAgent):
         if self.training_step % self.config.target_update_frequency == 0:
             self._update_target_network()
         
-        # 衰减探索率（在update中也会更新，这里确保即使不学习也更新）
-        self.epsilon = max(
-            self.config.epsilon_end, 
-            self.epsilon * self.config.epsilon_decay
-        )
-        self.training_stats['exploration_rate'].append(self.epsilon)
-        
+        # 探索率只在 update 里衰减一次，避免和匹配层的 ε 日程算两次。
         # 重置噪声网络的噪声（如果使用）
         if self.config.network_type == "noisy":
             self.q_network.reset_noise()
@@ -510,22 +539,12 @@ class IQLAgent(LearningAgent):
                 dones = dones.squeeze()
             
             # 验证状态维度
-            if states.size(1) != self.state_dim:
-                self.logger.warning(
-                    f"state dim mismatch: expected {self.state_dim}, got {states.size(1)}; adjusting"
+            if states.size(1) != self.state_dim or next_states.size(1) != self.state_dim:
+                self.logger.error(
+                    f"state dim mismatch: expected {self.state_dim}, "
+                    f"got {states.size(1)}; skipping update"
                 )
-                # 如果状态维度不匹配，尝试调整
-                if states.size(1) > self.state_dim:
-                    states = states[:, :self.state_dim]
-                    if next_states.size(1) > self.state_dim:
-                        next_states = next_states[:, :self.state_dim]
-                else:
-                    # 填充零
-                    padding = torch.zeros(batch_size, self.state_dim - states.size(1), device=states.device)
-                    states = torch.cat([states, padding], dim=1)
-                    if next_states.size(1) < self.state_dim:
-                        next_padding = torch.zeros(batch_size, self.state_dim - next_states.size(1), device=next_states.device)
-                        next_states = torch.cat([next_states, next_padding], dim=1)
+                return None, []
             
             # 计算当前Q值
             q_values = self.q_network(states)  # [batch_size, action_dim]
@@ -633,174 +652,28 @@ class IQLAgent(LearningAgent):
             )
     
     def _calculate_reward(self) -> float:
-        """
-        计算奖励值（使用统一的奖励计算器）
-        
-        Returns:
-            奖励值
-        """
+        """Score the RewardEvent produced by BaseAgent.update."""
+        event = self.last_reward_event
+        if event is None:
+            return 0.0
+        reward = float(self.reward_calculator.calculate_from_event(event)["reward"])
         current_pos = (self.x, self.y)
-        
-        # 使用统一的奖励计算器
-        # 获取本次收集的spice量（从agent的harvest记录中）
-        spice_collected = getattr(self, '_last_harvest_spice', 0.0)
-        
-        reward_result = self.reward_calculator.calculate_reward(
-            prev_sugar=self._last_sugar,
-            current_sugar=self.sugar,
-            prev_position=self._last_position,
-            current_position=current_pos,
-            status=self.status,
-            spice_collected=spice_collected,
-            age=self.age,
-            total_collected=self.total_collected,
-            visited_positions=self.visited_positions,
-            environment_size=self.environment_size,
-            component_breakdown=False
-        )
-        
-        reward = reward_result['reward']
-        
-        # 更新探索记录（奖励计算器不修改visited_positions）
         if current_pos not in self.visited_positions:
             self.visited_positions.add(current_pos)
-            self.logger.debug(f"agent {self.agent_id} explore new position {current_pos}")
-        
-        # 记录糖收集量
-        sugar_change = self.sugar - self._last_sugar
-        if sugar_change > 0:
-            self._sugar_collected_this_step = sugar_change
-        
-        # 记录奖励用于分析
         self.training_stats['rewards'].append(reward)
-        
-        # 更新状态记录
         self._last_sugar = self.sugar
         self._last_position = current_pos
-        
         return reward
     
     def _process_observation(self, observation: ObservationSpace) -> np.ndarray:
-        """
-        处理观察为神经网络输入（优化版本，带错误处理）
-        
-        Args:
-            observation: 观察空间
-            
-        Returns:
-            处理后的状态向量
-        """
-        try:
-            # 更新环境大小（如果可用）
-            if hasattr(observation, 'environment_size') and observation.environment_size > 0:
-                if not self._environment_size_initialized or self.environment_size != observation.environment_size:
-                    self.environment_size = observation.environment_size
-                    self._environment_size_initialized = True
-                    self.logger.debug(f"agent {self.agent_id} environment_size set to {self.environment_size}")
-            
-            features = []
-            
-            # 1. 局部视野特征（糖分布）
-            if hasattr(observation, 'local_view') and observation.local_view is not None:
-                local_view = observation.local_view.flatten()
-                max_sugar = getattr(self.config, 'max_sugar', 10.0)
-                if max_sugar <= 0:
-                    max_sugar = 1.0
-                local_view = local_view / max_sugar
-                # 检查NaN和Inf
-                local_view = np.nan_to_num(local_view, nan=0.0, posinf=1.0, neginf=0.0)
-                features.extend(local_view)
-            else:
-                # 如果local_view不存在，使用零向量
-                view_size = (self.vision_range * 2 + 1) ** 2
-                features.extend([0.0] * view_size)
-            
-            # 2. 智能体内部状态
-            agent_features = [
-                max(0.0, min(1.0, self.sugar / 50.0)),  # 归一化糖量，限制在[0,1]
-                min(self.age / 1000.0, 1.0),  # 归一化年龄，上限1000
-                max(0.0, min(1.0, self.metabolism_rate / 3.0)),  # 归一化新陈代谢
-                max(0.0, min(1.0, self.vision_range / 8.0)),  # 归一化视野范围
-                min(len(self.visited_positions) / 200.0, 1.0),  # 探索进度归一化
-                min(self.total_collected / 500.0, 1.0)  # 总收集糖量归一化
-            ]
-            features.extend(agent_features)
-            
-            # 3. 全局环境特征
-            if hasattr(observation, 'global_stats') and observation.global_stats:
-                global_stats = observation.global_stats
-                global_features = [
-                    min(global_stats.get('avg_sugar', 0) / 10.0, 1.0),
-                    min(global_stats.get('total_sugar', 0) / 5000.0, 1.0),
-                    min(len(global_stats.get('agents_by_type', {})) / 20.0, 1.0),
-                    max(0.0, min(1.0, global_stats.get('agent_diversity', 0)))  # 智能体多样性
-                ]
-                features.extend(global_features)
-            else:
-                features.extend([0.0, 0.0, 0.0, 0.0])
-            
-            # 4. 位置和移动特征
-            grid_center = self.environment_size // 2
-            pos_features = [
-                max(0.0, min(1.0, self.x / self.environment_size)),  # 绝对位置x
-                max(0.0, min(1.0, self.y / self.environment_size)),  # 绝对位置y
-                max(-1.0, min(1.0, (self.x - grid_center) / self.environment_size)),  # 相对中心位置x
-                max(-1.0, min(1.0, (self.y - grid_center) / self.environment_size)),  # 相对中心位置y
-            ]
-            features.extend(pos_features)
-            
-            # 5. 时间特征（周期性）
-            if hasattr(observation, 'step'):
-                step = observation.step
-                # 添加周期性时间特征，帮助学习时间模式
-                features.extend([
-                    np.sin(2 * np.pi * step / 100),
-                    np.cos(2 * np.pi * step / 100),
-                    min(step / 10000.0, 1.0)  # 线性时间特征，限制在[0,1]
-                ])
-            else:
-                features.extend([0.0, 1.0, 0.0])
-            
-            # 转换为numpy数组
-            state = np.array(features, dtype=np.float32)
-            
-            # 检查NaN和Inf
-            if np.any(np.isnan(state)) or np.any(np.isinf(state)):
-                self.logger.warning(f"agent {self.agent_id} state had NaN/Inf; sanitized")
-                state = np.nan_to_num(state, nan=0.0, posinf=1.0, neginf=0.0)
-            
-            # 维度处理 - 确保状态维度匹配网络输入
-            state_len = len(state)
-            if state_len != self.state_dim:
-                if state_len > self.state_dim:
-                    # 截断到指定维度
-                    state = state[:self.state_dim]
-                    if self.logger.isEnabledFor(logging.DEBUG):
-                        self.logger.debug(
-                            f"state vector truncated: {state_len} -> {self.state_dim} (agent {self.agent_id})"
-                        )
-                elif state_len < self.state_dim:
-                    # 填充到指定维度
-                    padding = np.zeros(self.state_dim - state_len, dtype=np.float32)
-                    state = np.concatenate([state, padding])
-                    if self.logger.isEnabledFor(logging.DEBUG):
-                        self.logger.debug(
-                            f"state vector padded: {state_len} -> {self.state_dim} (agent {self.agent_id})"
-                        )
-            
-            # 最终验证输出维度
-            if len(state) != self.state_dim:
-                self.logger.error(
-                    f"state dim error: {len(state)} != {self.state_dim} (agent {self.agent_id}); using zeros"
-                )
-                state = np.zeros(self.state_dim, dtype=np.float32)
-            
-            return state
-            
-        except Exception as e:
-            self.logger.error(f"agent {self.agent_id} _process_observation failed: {e}", exc_info=True)
-            # 返回零向量作为后备
-            return np.zeros(self.state_dim, dtype=np.float32)
+        """Read the shared encoder output. Dimension mismatches are not repaired."""
+        if hasattr(observation, 'environment_size') and observation.environment_size > 0:
+            self.environment_size = observation.environment_size
+            self._environment_size_initialized = True
+        encoded = getattr(observation, "encoded_state", None)
+        if encoded is None:
+            raise ObservationSpecError("observation is missing encoded_state")
+        return require_local_state(encoded, self.state_dim)
     
     def _action_idx_to_position(self, action_idx: int) -> Tuple[int, int]:
         """
@@ -812,15 +685,8 @@ class IQLAgent(LearningAgent):
         Returns:
             目标位置 (x, y)
         """
-        if 0 <= action_idx < len(self.directions):
-            dx, dy = self.directions[action_idx]
-        else:
-            dx, dy = 0, 0  # 默认不动
-        
-        new_x = (self.x + dx) % self.environment_size
-        new_y = (self.y + dy) % self.environment_size
-        
-        return new_x, new_y
+        codec = ActionCodec(self.environment_size)
+        return codec.index_to_position(self.x, self.y, action_idx)
     
     def get_q_values(self, observation: ObservationSpace) -> np.ndarray:
         """
@@ -1045,7 +911,8 @@ class IQLAgent(LearningAgent):
             'avg_loss': avg_loss,
             'avg_td_error': avg_td,
             'replay_buffer_size': len(self.replay_buffer),
-            'exploration_rate': self.epsilon
+            'exploration_rate': self.epsilon,
+            'policy_entropy': self.last_policy_entropy,
         }
     
     def save_model(self, filepath: str) -> None:

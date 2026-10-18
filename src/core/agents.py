@@ -21,6 +21,7 @@ from src.core.agent_base import (
     AgentType, AgentStatus, ObservationSpace, ActionSpace,
     AgentMetrics, BaseAgentConfig
 )
+from src.core.experiment_protocol import ActionCodec
 from src.config.ui_config import COLORS
 from src.config.simulation_config import SimulationConfig
 # 向后兼容：使用默认值
@@ -129,98 +130,58 @@ class RuleBasedAgent(BaseAgent):
                 'position': (self.x, self.y)
             })
 
+    def _candidate_actions(self, observation: ObservationSpace) -> List[Tuple[int, Tuple[int, int], float]]:
+        """Score only the 8 toroidal neighbors shared with the learning agents."""
+        codec = ActionCodec(observation.environment_size)
+        channels = getattr(observation, "local_channels", None)
+        vision = self.vision_range
+        ranked = []
+        for action_idx, (target_x, target_y) in enumerate(codec.legal_targets(self.x, self.y)):
+            dx = ((target_x - self.x + observation.environment_size // 2) % observation.environment_size) - observation.environment_size // 2
+            dy = ((target_y - self.y + observation.environment_size // 2) % observation.environment_size) - observation.environment_size // 2
+            sugar = spice = hazard = 0.0
+            if channels is not None and abs(dx) <= vision and abs(dy) <= vision:
+                sugar = float(channels[0, dx + vision, dy + vision])
+                spice = float(channels[1, dx + vision, dy + vision])
+                hazard = float(channels[2, dx + vision, dy + vision])
+            diagonal = 0.05 if dx != 0 and dy != 0 else 0.0
+            score = spice * 5.0 + sugar - hazard * 2.0 - diagonal
+            ranked.append((action_idx, (target_x, target_y), score))
+        return ranked
+
     def _greedy_movement(self, observation: ObservationSpace) -> Tuple[int, int]:
-        """
-        贪婪移动策略 - 选择糖最多的位置
-        
-        Args:
-            observation: 观察空间对象
-            
-        Returns:
-            目标位置 (target_x, target_y)
-        """
-        best_x, best_y = self.x, self.y
-        max_sugar = -1.0
-        env_size = observation.environment_size
-        
-        # 在视野范围内搜索糖最多的位置
-        for dx in range(-self.vision_range, self.vision_range + 1):
-            for dy in range(-self.vision_range, self.vision_range + 1):
-                if dx == 0 and dy == 0:
-                    continue  # 排除当前位置
-                    
-                # 使用环境实际大小进行边界处理
-                new_x = max(0, min(env_size - 1, self.x + dx))
-                new_y = max(0, min(env_size - 1, self.y + dy))
-                
-                # 获取该位置的糖量
-                sugar_here = self._estimate_sugar_at(new_x, new_y, observation)
-                
-                if sugar_here > max_sugar:
-                    max_sugar = sugar_here
-                    best_x, best_y = new_x, new_y
-        
-        return best_x, best_y
+        """Greedy among the 8 shared actions. Prefer spice, then sugar, avoid hazard."""
+        ranked = self._candidate_actions(observation)
+        if not ranked:
+            return self.x, self.y
+        return max(ranked, key=lambda item: item[2])[1]
 
     def _conservative_movement(self, observation: ObservationSpace) -> Tuple[int, int]:
-        """
-        保守移动策略 - 考虑移动距离和糖量
-        
-        Args:
-            observation: 观察空间对象
-            
-        Returns:
-            目标位置 (target_x, target_y)
-        """
-        best_x, best_y = self.x, self.y
-        best_score = -float('inf')
-        env_size = observation.environment_size
-        
-        for dx in range(-self.vision_range, self.vision_range + 1):
-            for dy in range(-self.vision_range, self.vision_range + 1):
-                if dx == 0 and dy == 0:
-                    continue
-                    
-                # 使用环境实际大小进行边界处理
-                new_x = max(0, min(env_size - 1, self.x + dx))
-                new_y = max(0, min(env_size - 1, self.y + dy))
-                
-                sugar_here = self._estimate_sugar_at(new_x, new_y, observation)
-                distance = abs(dx) + abs(dy)  # 曼哈顿距离
-                
-                # 计算得分：糖量 - 移动成本
-                score = sugar_here - (distance * 0.1)
-                
-                if score > best_score:
-                    best_score = score
-                    best_x, best_y = new_x, new_y
-        
-        return best_x, best_y
+        """Same 8 actions, with an extra penalty on hazard."""
+        ranked = self._candidate_actions(observation)
+        if not ranked:
+            return self.x, self.y
+        rescored = []
+        channels = getattr(observation, "local_channels", None)
+        vision = self.vision_range
+        for action_idx, target, score in ranked:
+            hazard = 0.0
+            if channels is not None:
+                dx = ((target[0] - self.x + observation.environment_size // 2) % observation.environment_size) - observation.environment_size // 2
+                dy = ((target[1] - self.y + observation.environment_size // 2) % observation.environment_size) - observation.environment_size // 2
+                if abs(dx) <= vision and abs(dy) <= vision:
+                    hazard = float(channels[2, dx + vision, dy + vision])
+            rescored.append((target, score - hazard))
+        return max(rescored, key=lambda item: item[1])[0]
 
     def _exploratory_movement(self, observation: ObservationSpace) -> Tuple[int, int]:
-        """
-        探索性移动策略 - 结合贪婪和随机探索
-        
-        Args:
-            observation: 观察空间对象
-            
-        Returns:
-            目标位置 (target_x, target_y)
-        """
-        env_size = observation.environment_size
-        
-        # 按概率进行随机探索
+        """Random among the 8 actions, otherwise the greedy neighbor."""
+        ranked = self._candidate_actions(observation)
+        if not ranked:
+            return self.x, self.y
         if random.random() < self.config.exploration_rate:
-            # 随机选择视野内的一个位置
-            dx = random.randint(-self.vision_range, self.vision_range)
-            dy = random.randint(-self.vision_range, self.vision_range)
-            # 使用环境实际大小进行边界处理
-            new_x = max(0, min(env_size - 1, self.x + dx))
-            new_y = max(0, min(env_size - 1, self.y + dy))
-            return new_x, new_y
-        else:
-            # 使用贪婪策略
-            return self._greedy_movement(observation)
+            return random.choice(ranked)[1]
+        return max(ranked, key=lambda item: item[2])[1]
 
     def _estimate_sugar_at(self, x: int, y: int, observation: ObservationSpace) -> float:
         """

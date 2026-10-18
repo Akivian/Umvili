@@ -2650,10 +2650,10 @@ class ExperimentConfigPanel:
         )
         self.ui_components['iql_learning_rate'] = self.UIComponents['Slider'](
             rect=iql_lr_rect,
-            label="IQL Learning Rate",
+            label="Matched Learning Rate",
             min_value=0.0001,
             max_value=0.01,
-            initial_value=0.001,
+            initial_value=0.0005,
             step=0.0001,
             font_manager=self.font_manager,
             value_format="{:.4f}"
@@ -2668,10 +2668,10 @@ class ExperimentConfigPanel:
         )
         self.ui_components['iql_gamma'] = self.UIComponents['Slider'](
             rect=iql_gamma_rect,
-            label="IQL Gamma (γ)",
+            label="Matched Gamma",
             min_value=0.5,
             max_value=0.99,
-            initial_value=0.95,
+            initial_value=0.99,
             step=0.01,
             font_manager=self.font_manager,
             value_format="{:.2f}"
@@ -2687,7 +2687,7 @@ class ExperimentConfigPanel:
         )
         self.ui_components['iql_epsilon_start'] = self.UIComponents['Slider'](
             rect=iql_eps_start_rect,
-            label="IQL Epsilon Start",
+            label="Matched Epsilon Start",
             min_value=0.0,
             max_value=1.0,
             initial_value=1.0,
@@ -2705,10 +2705,10 @@ class ExperimentConfigPanel:
         )
         self.ui_components['iql_epsilon_end'] = self.UIComponents['Slider'](
             rect=iql_eps_end_rect,
-            label="IQL Epsilon End",
+            label="Matched Epsilon End",
             min_value=0.0,
             max_value=0.5,
-            initial_value=0.01,
+            initial_value=0.05,
             step=0.01,
             font_manager=self.font_manager,
             value_format="{:.2f}"
@@ -2722,15 +2722,11 @@ class ExperimentConfigPanel:
             component_width,
             slider_height
         )
-        self.ui_components['qmix_learning_rate'] = self.UIComponents['Slider'](
+        self.ui_components['reward_exploration'] = self.UIComponents['Checkbox'](
             rect=qmix_lr_rect,
-            label="QMIX Learning Rate",
-            min_value=0.0001,
-            max_value=0.01,
-            initial_value=0.0005,
-            step=0.0001,
+            label="Ablation: exploration",
+            initial_value=False,
             font_manager=self.font_manager,
-            value_format="{:.4f}"
         )
         
         # QMIX Gamma
@@ -2740,15 +2736,11 @@ class ExperimentConfigPanel:
             component_width,
             slider_height
         )
-        self.ui_components['qmix_gamma'] = self.UIComponents['Slider'](
+        self.ui_components['reward_wealth'] = self.UIComponents['Checkbox'](
             rect=qmix_gamma_rect,
-            label="QMIX Gamma (γ)",
-            min_value=0.5,
-            max_value=0.99,
-            initial_value=0.99,
-            step=0.01,
+            label="Ablation: wealth",
+            initial_value=False,
             font_manager=self.font_manager,
-            value_format="{:.2f}"
         )
         
         # 略小于原 10px，为底部按钮区腾出一点空间，仍低于滑条标签绘制区
@@ -2762,8 +2754,8 @@ class ExperimentConfigPanel:
         overflow = self.apply_button_rect.bottom - max_bottom
         if overflow <= 0:
             return
-        qmix_lr = self.ui_components.get('qmix_learning_rate')
-        qmix_g = self.ui_components.get('qmix_gamma')
+        qmix_lr = self.ui_components.get('reward_exploration')
+        qmix_g = self.ui_components.get('reward_wealth')
         if not qmix_lr or not qmix_g:
             self.apply_button_rect.y -= overflow
             self.cancel_button_rect.y -= overflow
@@ -2859,6 +2851,14 @@ class ExperimentConfigPanel:
             title_x = self.rect.x + self.padding['left']
             title_y = self.rect.y + self.padding['top']
             screen.blit(title_surface, (title_x, title_y))
+            protocol_hash = None
+            if self.simulation is not None and getattr(self.simulation, "protocol", None) is not None:
+                protocol_hash = self.simulation.protocol.protocol_hash()
+            if protocol_hash:
+                hash_surface = self.font_manager.render_text(
+                    f"Protocol {protocol_hash}", 'TINY', COLORS['TEXT_SECONDARY']
+                )
+                screen.blit(hash_surface, (title_x + title_surface.get_width() + 12, title_y + 6))
             
             # Draw section titles
             for section_name, section_info in self.sections.items():
@@ -2867,7 +2867,7 @@ class ExperimentConfigPanel:
                 elif section_name == 'environment':
                     section_title = "Environment Configuration"
                 elif section_name == 'hyperparameters':
-                    section_title = "Algorithm Hyperparameters"
+                    section_title = "Matched Hyperparameters"
                 else:
                     section_title = section_name.title()
                 
@@ -4072,6 +4072,19 @@ class AcademicVisualizationSystem:
                 return True
         return False
 
+    def _align_charts_to_protocol(self, simulation_data: Dict[str, Any]) -> None:
+        """Drop curves when the comparison contract changes."""
+        new_hash = simulation_data.get("protocol_hash")
+        if not new_hash:
+            return
+        if getattr(self, "_chart_protocol_hash", None) == new_hash:
+            return
+        self._chart_protocol_hash = new_hash
+        for collection in (getattr(self, "training_charts", {}), getattr(self, "behavior_charts", {})):
+            for chart in collection.values():
+                chart.clear_all()
+                chart.lines.clear()
+
     def _update_training_charts(self, simulation_data: Dict[str, Any]) -> None:
         """
         更新训练指标图表数据
@@ -4082,6 +4095,7 @@ class AcademicVisualizationSystem:
         step = simulation_data.get('step_count', 0) or 0
         # 默认清空状态消息，后续根据情况设置
         self.training_status_message = None
+        self._align_charts_to_protocol(simulation_data)
         
         # 是否存在 IQL/QMIX 学习智能体（不能仅看 marl_trainers，见 _simulation_has_marl_learning_agents）
         if not self._simulation_has_marl_learning_agents(simulation_data):
@@ -4216,6 +4230,7 @@ class AcademicVisualizationSystem:
         - Reward Trend：基于训练指标中的 avg_reward / recent_reward
         - Policy Entropy：基于当前动作分布计算离散策略熵
         """
+        self._align_charts_to_protocol(simulation_data)
         if not self.behavior_charts:
             return
 
@@ -4291,47 +4306,31 @@ class AcademicVisualizationSystem:
                 reward_chart.clear_all()
                 reward_chart.lines.clear()
 
-        # 2) 策略熵：基于当前动作分布计算 H(a | type)
+        # 2) 策略熵：学习体 get_policy() 的 epsilon-greedy 分布熵，不是动作直方图
         entropy_chart = self.behavior_charts.get("policy_entropy")
         if entropy_chart:
-            if action_dist:
-                # 当前有动作分布数据的算法标签
+            entropy_metrics = {
+                agent_type: metrics
+                for agent_type, metrics in (training_metrics or {}).items()
+                if metrics.get("policy_entropy") is not None and agent_type in (
+                    "iql", "independent_q_learning", "qmix"
+                )
+            }
+            if entropy_metrics:
                 active_entropy_labels = set()
-
-                for agent_type, counts in action_dist.items():
-                    if not counts:
-                        continue
-                    total = sum(int(c) for c in counts.values())
-                    if total <= 0:
-                        continue
-
-                    probs = []
-                    for c in counts.values():
-                        c = int(c)
-                        if c > 0:
-                            probs.append(c / total)
-                    if not probs:
-                        continue
-
-                    entropy = 0.0
-                    for p in probs:
-                        entropy -= p * math.log(p + 1e-12, 2)
-
+                for agent_type, metrics in entropy_metrics.items():
                     agent_label = label_map.get(agent_type, agent_type.upper())
                     active_entropy_labels.add(agent_label)
-
                     if agent_label not in entropy_chart.lines:
                         color = color_map.get(agent_type, COLORS["CHART_LINE_1"])
                         entropy_chart.add_line(agent_label, color=color)
-
-                    entropy_chart.add_data_point_conditional(agent_label, entropy, step)
-
-                # 移除当前没有动作分布数据的算法曲线
+                    entropy_chart.add_data_point_conditional(
+                        agent_label, float(metrics["policy_entropy"]), step
+                    )
                 for label in list(entropy_chart.lines.keys()):
                     if label not in active_entropy_labels:
                         entropy_chart.remove_line(label)
             else:
-                # 没有任何动作分布数据时，清空策略熵图表
                 entropy_chart.clear_all()
                 entropy_chart.lines.clear()
 
