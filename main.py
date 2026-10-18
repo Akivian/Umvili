@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Umvili - Main Entry Point
 
@@ -16,7 +18,6 @@ Version: 3.0.0
 """
 
 import sys
-import pygame
 import logging
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass, field
@@ -28,8 +29,6 @@ import traceback
 from src.utils.logging_config import setup_logging
 setup_logging()
 
-from src.core.simulation import MARLSimulation, SimulationFactory, SimulationState
-from src.utils.visualization import ModernVisualizationSystem
 from src.config import (
     ApplicationConfig,
     ApplicationState,
@@ -44,6 +43,31 @@ from src.config import (
 
 # 获取模块日志记录器
 logger = logging.getLogger(__name__)
+
+# 这些名字只在 Pygame 旧界面里使用。实验台路径不导入它们，避免启动时加载 SDL。
+pygame = None
+MARLSimulation = None
+SimulationFactory = None
+SimulationState = None
+ModernVisualizationSystem = None
+
+
+def _load_legacy_ui() -> None:
+    """Import the desktop window stack after the caller chooses --legacy-ui."""
+    global pygame, MARLSimulation, SimulationFactory, SimulationState, ModernVisualizationSystem
+    import pygame as pygame_module
+    from src.core.simulation import (
+        MARLSimulation as simulation_cls,
+        SimulationFactory as simulation_factory,
+        SimulationState as simulation_state,
+    )
+    from src.utils.visualization import ModernVisualizationSystem as visualization_cls
+
+    pygame = pygame_module
+    MARLSimulation = simulation_cls
+    SimulationFactory = simulation_factory
+    SimulationState = simulation_state
+    ModernVisualizationSystem = visualization_cls
 
 
 # ApplicationState is now imported from src.config
@@ -719,7 +743,17 @@ def main() -> int:
                           help='模拟类型')
         parser.add_argument('--grid-size', type=int, help='网格大小')
         parser.add_argument('--agents', type=int, help='初始智能体数量')
+        parser.add_argument('--legacy-ui', action='store_true', help='打开原来的 Pygame 窗口')
+        parser.add_argument('--port', type=int, default=8765, help='实验台端口')
+        parser.add_argument('--no-browser', action='store_true', help='不自动打开浏览器')
         args = parser.parse_args()
+
+        if not args.legacy_ui:
+            from src.lab.app import serve
+            serve(port=args.port, open_browser=not args.no_browser)
+            return 0
+
+        _load_legacy_ui()
         
         # 构建配置字典
         user_config = {}

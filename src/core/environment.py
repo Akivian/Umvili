@@ -5,7 +5,6 @@
 import numpy as np
 from typing import Dict, Any, List, Tuple
 from collections import deque
-import pygame
 import random
 from src.config.ui_config import COLORS
 # 向后兼容：使用默认值
@@ -521,8 +520,9 @@ class SugarEnvironment:
             'spice_growth_rate': self.spice_growth_rate
         }
     
-    def draw(self, screen: pygame.Surface) -> None:
-        """绘制糖分布"""
+    def draw(self, screen: Any) -> None:
+        """绘制糖分布。仅旧的 Pygame 视图会调用。"""
+        import pygame
         # 绘制糖单元格
         for x in range(self.size):
             for y in range(self.size):

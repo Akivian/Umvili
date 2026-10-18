@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Umvili Lab</title>
+  <link rel="stylesheet" href="/static/lab.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">Umvili</div>
+    <div class="status" id="status">正在准备模拟</div>
+    <div class="hash">
+      <span>已应用</span>
+      <code id="appliedHash">—</code>
+    </div>
+    <div class="hash draft">
+      <span>草稿</span>
+      <code id="draftHash">—</code>
+    </div>
+  </header>
+
+  <main>
+    <section class="map-pane">
+      <canvas id="map"></canvas>
+      <div class="legend" id="legend"></div>
+    </section>
+
+    <section class="charts">
+      <article>
+        <h2>Sugar / step</h2>
+        <canvas id="sugarChart"></canvas>
+      </article>
+      <article>
+        <h2>Loss</h2>
+        <canvas id="lossChart"></canvas>
+      </article>
+    </section>
+
+    <form class="tools" id="tools">
+      <div class="run">
+        <button type="button" id="pause">暂停</button>
+        <button type="button" id="reset">重置</button>
+        <div class="speeds" id="speeds">
+          <button type="button" data-speed="1">1x</button>
+          <button type="button" data-speed="4">4x</button>
+          <button type="button" data-speed="16">16x</button>
+        </div>
+      </div>
+
+      <fieldset>
+        <legend>算法</legend>
+        <label>组合
+          <select name="algorithm_mode"></select>
+        </label>
+        <label>每组人数
+          <input name="agents_per_group" type="number" step="1">
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>网络</legend>
+        <div class="presets" id="presets"></div>
+        <div class="grid2">
+          <label>Conv 1 <input name="conv_in" type="number" step="1"></label>
+          <label>Conv 2 <input name="conv_out" type="number" step="1"></label>
+          <label>Head <input name="head_dim" type="number" step="1"></label>
+          <label>Ego <input name="ego_hidden" type="number" step="1"></label>
+          <label>Pool <input name="pool_size" type="number" step="1"></label>
+        </div>
+        <p class="capacity" id="capacity">参数量计算中</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>学习</legend>
+        <div class="grid2">
+          <label>学习率 <input name="learning_rate" type="number" step="0.0001"></label>
+          <label>Gamma <input name="gamma" type="number" step="0.01"></label>
+          <label>Epsilon 终点 <input name="epsilon_end" type="number" step="0.01"></label>
+          <label>Batch <input name="batch_size" type="number" step="1"></label>
+          <label>Learning starts <input name="learning_starts" type="number" step="1"></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>世界</legend>
+        <div class="grid2">
+          <label>网格 <input name="grid_size" type="number" step="1"></label>
+          <label>糖再生 <input name="sugar_growth_rate" type="number" step="0.01"></label>
+          <label>视野 <input name="vision_range" type="number" step="1"></label>
+        </div>
+        <label class="check"><input name="spice_enabled" type="checkbox"> 香料</label>
+        <label class="check"><input name="hazard_enabled" type="checkbox"> 危险</label>
+      </fieldset>
+
+      <div class="apply">
+        <button type="button" id="apply">应用并重置</button>
+        <p id="applyHint"></p>
+        <button type="button" id="export" class="ghost">导出这条曲线</button>
+        <p class="notice" id="notice"></p>
+      </div>
+    </form>
+  </main>
+  <script src="/static/lab.js"></script>
+</body>
+</html>

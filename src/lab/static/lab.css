@@ -1,0 +1,258 @@
+:root {
+  --bg: #1e1e1e;
+  --header: #181818;
+  --sidebar: #252526;
+  --panel: #1e1e1e;
+  --input: #3c3c3c;
+  --hover: #2a2d2e;
+  --line: #3c3c3c;
+  --text: #d4d4d4;
+  --muted: #858585;
+  --accent: #569cd6;
+  --focus: #007acc;
+  --button: #0e639c;
+  --button-hover: #1177bb;
+  --selection: #264f78;
+  --warn: #f44747;
+  --string: #ce9178;
+  --function: #dcdcaa;
+  --variable: #9cdcfe;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 "Segoe WPC", "Segoe UI", sans-serif;
+}
+
+button, input, select {
+  font: inherit;
+  color: inherit;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--header);
+}
+
+.brand {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.status {
+  color: var(--muted);
+  min-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hash {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.hash code {
+  color: var(--variable);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.hash.draft code { color: var(--function); }
+
+main {
+  height: calc(100% - 40px);
+  display: grid;
+  grid-template-columns: minmax(380px, 1.15fr) minmax(280px, 0.85fr) 320px;
+}
+
+.map-pane, .charts, .tools {
+  min-height: 0;
+}
+
+.map-pane {
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  gap: 8px;
+}
+
+#map {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.legend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+}
+
+.charts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 8px 8px 0;
+}
+
+.charts article {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 8px 10px 10px;
+}
+
+.charts h2 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.charts canvas {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+}
+
+.tools {
+  overflow: auto;
+  padding: 8px 12px 20px;
+  border-left: 1px solid var(--line);
+  background: var(--sidebar);
+}
+
+.run, .speeds, .presets, .grid2 {
+  display: flex;
+  gap: 6px;
+}
+
+.run { margin-bottom: 12px; }
+
+.speeds, .presets { flex: 1; }
+
+button {
+  background: var(--input);
+  border: 1px solid transparent;
+  border-radius: 2px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+button:hover { background: var(--hover); }
+
+button[aria-pressed="true"], button.active {
+  background: var(--selection);
+  border-color: var(--focus);
+  color: #ffffff;
+}
+
+fieldset {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  margin: 0 0 10px;
+  padding: 8px;
+}
+
+legend {
+  padding: 0 6px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.grid2 label { margin: 0; }
+
+input, select {
+  background: var(--input);
+  border: 1px solid transparent;
+  border-radius: 2px;
+  padding: 4px 6px;
+  color: var(--text);
+}
+
+input:focus, select:focus {
+  outline: 1px solid var(--focus);
+  border-color: var(--focus);
+}
+
+.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.capacity, #applyHint, .notice {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.capacity.warn, .notice { color: var(--warn); }
+
+#apply {
+  width: 100%;
+  background: var(--button);
+  color: #ffffff;
+  border: none;
+  font-weight: 600;
+  padding: 6px 10px;
+}
+
+#apply:hover { background: var(--button-hover); }
+
+#apply:disabled { opacity: 0.6; cursor: wait; }
+
+.ghost {
+  width: 100%;
+  margin-top: 8px;
+  background: transparent;
+  border: 1px solid var(--line);
+}
+
+.ghost:hover { background: var(--hover); }
+
+@media (max-width: 1100px) {
+  main { grid-template-columns: 1fr; height: auto; }
+  .map-pane { height: 70vh; }
+  .charts { height: 70vh; padding: 0 8px 8px; }
+  .tools { border-left: none; border-top: 1px solid var(--line); }
+}
