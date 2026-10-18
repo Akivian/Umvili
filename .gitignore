@@ -75,6 +75,7 @@ Thumbs.db
 config/local.json
 *.pyc
 .virtualme/
+tmp/session/
 
 # Paper / thesis docs (do not publish to open repo)
 docs/zh/paper/
