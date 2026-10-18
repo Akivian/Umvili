@@ -15,8 +15,9 @@ import torch
 import torch.optim as optim
 
 from src.core.experiment_protocol import EGO_FEATURE_DIM
+from src.marl.device import select_device
 from src.marl.losses import weighted_mse
-from src.marl.networks import SpatialQNetwork
+from src.marl.networks import build_spatial_q
 from src.marl.replay_buffer import Experience, PriorityReplayBuffer
 
 
@@ -35,9 +36,10 @@ class IQLTrainer:
         self.target_update_frequency = int(self.config.get("target_update_frequency", 100))
         self.gradient_steps = 0
         self.last_target_update = 0
+        self.device = select_device()
 
-        self.q_network = SpatialQNetwork(self.view_size, self.action_dim, EGO_FEATURE_DIM)
-        self.target_q_network = SpatialQNetwork(self.view_size, self.action_dim, EGO_FEATURE_DIM)
+        self.q_network = build_spatial_q(self.view_size, self.action_dim, self.config, EGO_FEATURE_DIM).to(self.device)
+        self.target_q_network = build_spatial_q(self.view_size, self.action_dim, self.config, EGO_FEATURE_DIM).to(self.device)
         self.target_q_network.load_state_dict(self.q_network.state_dict())
         self.target_q_network.eval()
         self.optimizer = optim.Adam(self.q_network.parameters(), lr=self.learning_rate, eps=1e-8)
@@ -66,12 +68,12 @@ class IQLTrainer:
         if int(env_step) % self.train_frequency != 0:
             return None
         batch = self.replay_buffer.sample(self.batch_size)
-        states = torch.as_tensor(batch["states"], dtype=torch.float32)
-        actions = torch.as_tensor(batch["actions"], dtype=torch.long).view(-1, 1)
-        rewards = torch.as_tensor(batch["rewards"], dtype=torch.float32).view(-1, 1)
-        next_states = torch.as_tensor(batch["next_states"], dtype=torch.float32)
-        dones = torch.as_tensor(batch["dones"], dtype=torch.bool).view(-1, 1)
-        weights = batch["weights"].view(-1, 1)
+        states = torch.as_tensor(batch["states"], dtype=torch.float32, device=self.device)
+        actions = torch.as_tensor(batch["actions"], dtype=torch.long, device=self.device).view(-1, 1)
+        rewards = torch.as_tensor(batch["rewards"], dtype=torch.float32, device=self.device).view(-1, 1)
+        next_states = torch.as_tensor(batch["next_states"], dtype=torch.float32, device=self.device)
+        dones = torch.as_tensor(batch["dones"], dtype=torch.bool, device=self.device).view(-1, 1)
+        weights = batch["weights"].to(self.device).view(-1, 1)
         if states.shape[1] != self.state_dim or actions.shape[0] != states.shape[0]:
             return None
 

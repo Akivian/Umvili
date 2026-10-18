@@ -16,7 +16,7 @@ import logging
 
 from src.core.experiment_protocol import EGO_FEATURE_DIM, GLOBAL_STATE_DIM
 from src.marl.losses import weighted_mse
-from src.marl.networks import QMIXMixingNetwork, SpatialQNetwork
+from src.marl.networks import QMIXMixingNetwork, build_spatial_q
 from src.marl.replay_buffer import Experience, PriorityReplayBuffer
 
 
@@ -103,16 +103,11 @@ class QMIXTrainer:
     def _initialize_networks(self) -> None:
         """初始化所有网络"""
         # 个体Q网络（所有智能体共享参数）
-        self.q_network = SpatialQNetwork(
-            view_size=self.view_size,
-            action_dim=self.action_dim,
-            ego_dim=EGO_FEATURE_DIM,
+        self.q_network = build_spatial_q(
+            self.view_size, self.action_dim, self.config, EGO_FEATURE_DIM
         )
-        
-        self.target_q_network = SpatialQNetwork(
-            view_size=self.view_size,
-            action_dim=self.action_dim,
-            ego_dim=EGO_FEATURE_DIM,
+        self.target_q_network = build_spatial_q(
+            self.view_size, self.action_dim, self.config, EGO_FEATURE_DIM
         )
         self.target_q_network.load_state_dict(self.q_network.state_dict())
         

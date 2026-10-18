@@ -25,6 +25,7 @@ from src.core.experiment_protocol import (
 )
 from src.core.observation_encoder import ObservationSpecError, require_local_state
 from src.core.reward_calculator import RewardCalculator
+from src.marl.device import q_values_numpy
 from src.marl.networks import QMIXAgentNetwork, QMIXMixingNetwork
 from src.marl.replay_buffer import Experience, PriorityReplayBuffer
 from src.config.simulation_config import SimulationConfig
@@ -209,14 +210,11 @@ class QMIXAgent(LearningAgent):
         else:
             # 利用Q值选择最佳动作
             if self.q_network is not None:
-                with torch.no_grad():
-                    state_tensor = torch.FloatTensor(state).unsqueeze(0)
-                    q_values = self.q_network(state_tensor)
-                    action_idx = q_values.argmax().item()
-                
+                q_values = q_values_numpy(self.q_network, state).reshape(-1)
+                action_idx = int(q_values.argmax())
                 self.logger.debug(
                     f"QMIX agent {self.agent_id} exploit action_idx={action_idx}, "
-                    f"max_Q={q_values.max().item():.3f}"
+                    f"max_Q={float(q_values.max()):.3f}"
                 )
             else:
                 # 网络未初始化，随机选择
@@ -234,8 +232,7 @@ class QMIXAgent(LearningAgent):
         self.last_global_state = global_state
         q_for_policy = None
         if self.q_network is not None and len(state) == self.state_dim:
-            with torch.no_grad():
-                q_for_policy = self.q_network(torch.FloatTensor(state).unsqueeze(0)).numpy().flatten()
+            q_for_policy = q_values_numpy(self.q_network, state).reshape(-1)
         self.last_policy_entropy = policy_entropy_bits(
             epsilon_greedy_policy(q_for_policy, self.epsilon, self.action_dim)
         )
@@ -395,10 +392,7 @@ class QMIXAgent(LearningAgent):
             return np.random.randn(self.action_dim)
         
         state = self._process_observation(observation)
-        with torch.no_grad():
-            state_tensor = torch.FloatTensor(state).unsqueeze(0)
-            q_values = self.q_network(state_tensor)
-        return q_values.numpy().flatten()
+        return q_values_numpy(self.q_network, state).reshape(-1).astype(np.float32, copy=False)
     
     def get_q_value_map(self, environment: Any, sample_density: int = 2) -> np.ndarray:
         """
@@ -473,12 +467,7 @@ class QMIXAgent(LearningAgent):
         
         try:
             state = self._process_observation(observation)
-            state_tensor = torch.FloatTensor(state).unsqueeze(0)
-            
-            # 获取Q值
-            with torch.no_grad():
-                q_values = self.q_network(state_tensor)
-                q_values_np = q_values.numpy().flatten()
+            q_values_np = q_values_numpy(self.q_network, state).reshape(-1)
             
             # 获取隐藏层激活（如果网络支持）
             hidden_activations = []

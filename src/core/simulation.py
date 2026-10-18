@@ -586,6 +586,10 @@ class MARLSimulation:
                 "target_update_frequency": self.protocol.matched.target_update_frequency,
                 "per_alpha": self.protocol.matched.per_alpha,
                 "per_beta": self.protocol.matched.per_beta,
+                "conv_channels": self.protocol.matched.conv_channels,
+                "head_dim": self.protocol.matched.head_dim,
+                "ego_hidden": self.protocol.matched.ego_hidden,
+                "pool_size": self.protocol.matched.pool_size,
             }
             state_dim = self.protocol.local_state_dim
         else:
@@ -670,6 +674,10 @@ class MARLSimulation:
                     trainer_config["view_size"] = self.protocol.body.vision_range * 2 + 1
                     trainer_config["learning_starts"] = self.protocol.matched.learning_starts
                     trainer_config["train_frequency"] = self.protocol.matched.train_frequency
+                    trainer_config["conv_channels"] = self.protocol.matched.conv_channels
+                    trainer_config["head_dim"] = self.protocol.matched.head_dim
+                    trainer_config["ego_hidden"] = self.protocol.matched.ego_hidden
+                    trainer_config["pool_size"] = self.protocol.matched.pool_size
                     state_dim = self.protocol.local_state_dim
                 qmix_trainer = QMIXTrainer(
                     num_agents=num_agents,

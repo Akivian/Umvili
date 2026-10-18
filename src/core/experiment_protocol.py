@@ -114,6 +114,10 @@ class MatchedHyperparameters:
     epsilon_end: float = 0.05
     epsilon_decay: float = 0.998
     hidden_dims: Tuple[int, ...] = (128, 64)
+    conv_channels: Tuple[int, int] = (128, 256)
+    head_dim: int = 1024
+    ego_hidden: int = 256
+    pool_size: int = 8
     batch_size: int = 32
     replay_buffer_size: int = 10000
     per_alpha: float = 0.6
@@ -147,6 +151,10 @@ class ExperimentProtocol:
             raise ProtocolError("vision_range must be >= 1")
         if self.matched.network_type not in ("dqn", "dueling", "noisy"):
             raise ProtocolError(f"unknown network_type: {self.matched.network_type}")
+        if len(self.matched.conv_channels) != 2 or any(int(c) < 1 for c in self.matched.conv_channels):
+            raise ProtocolError("conv_channels must be two positive widths")
+        if self.matched.head_dim < 8 or self.matched.ego_hidden < 4 or self.matched.pool_size < 1:
+            raise ProtocolError("head_dim, ego_hidden and pool_size are too small")
         if self.algorithm_mode == "iql_qmix" and self.matched.network_type != "dqn":
             raise ProtocolError(
                 "iql_qmix keeps the network family at dqn; "
@@ -182,6 +190,8 @@ class ExperimentProtocol:
         matched_raw = dict(data.get("matched") or {})
         hidden = matched_raw.get("hidden_dims", (128, 64))
         matched_raw["hidden_dims"] = tuple(int(v) for v in hidden)
+        if "conv_channels" in matched_raw:
+            matched_raw["conv_channels"] = tuple(int(v) for v in matched_raw["conv_channels"])
         protocol = cls(
             environment=EnvironmentFingerprint(**dict(data.get("environment") or {})),
             body=BodySpec(**dict(data.get("body") or {})),

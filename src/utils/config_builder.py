@@ -455,6 +455,10 @@ class ConfigBuilder:
             epsilon_decay=float(iql.get("epsilon_decay", 0.995)),
             network_type=network_type if mode == "iql_only" else "dqn",
             hidden_dims=tuple(iql.get("hidden_dims", (128, 64))),
+            conv_channels=tuple(int(v) for v in params.get("conv_channels", (128, 256))),
+            head_dim=int(params.get("head_dim", 1024)),
+            ego_hidden=int(params.get("ego_hidden", 256)),
+            pool_size=int(params.get("pool_size", 8)),
         )
         reward = RewardSpec(
             exploration_enabled=bool(params.get("reward_exploration", False)),

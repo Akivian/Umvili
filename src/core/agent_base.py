@@ -518,9 +518,9 @@ class BaseAgent(ABC):
                 view_x = dx + self.vision_range
                 view_y = dy + self.vision_range
                 
-                # Calculate environment coordinates with boundary clamping
-                env_x = self._clamp_coordinate(self.x + dx, environment.size)
-                env_y = self._clamp_coordinate(self.y + dy, environment.size)
+                # Same toroidal wrap as movement, so the viewed cell is the cell the agent can enter.
+                env_x = (self.x + dx) % environment.size
+                env_y = (self.y + dy) % environment.size
                 
                 local_view[view_x, view_y] = environment.sugar_map[env_x, env_y]
         

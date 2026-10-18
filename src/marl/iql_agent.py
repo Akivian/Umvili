@@ -30,6 +30,7 @@ from src.core.experiment_protocol import (
 )
 from src.core.observation_encoder import ObservationSpecError, require_local_state
 from src.core.reward_calculator import RewardCalculator
+from src.marl.device import q_values_numpy
 from src.marl.networks import QNetwork, DuelingQNetwork, NoisyQNetwork
 from src.marl.replay_buffer import Experience, PriorityReplayBuffer
 from src.config.simulation_config import SimulationConfig
@@ -273,43 +274,17 @@ class IQLAgent(LearningAgent):
                         action_idx = random.randint(0, self.action_dim - 1)
                         self.logger.warning(f"agent {self.agent_id} Q-network not initialized; random action")
                     else:
-                        with torch.no_grad():
-                            # 确保状态是2D张量
-                            if isinstance(state, np.ndarray):
-                                state_tensor = torch.FloatTensor(state).unsqueeze(0)
-                            else:
-                                state_tensor = torch.FloatTensor([state]).unsqueeze(0)
-                            
-                            # 验证状态张量维度
-                            if state_tensor.size(1) != self.state_dim:
-                                self.logger.warning(
-                                    f"agent {self.agent_id} state tensor dim mismatch: "
-                                    f"{state_tensor.size(1)} != {self.state_dim}"
-                                )
-                                action_idx = random.randint(0, self.action_dim - 1)
-                            else:
-                                q_values = self.q_network(state_tensor)
-                                
-                                # 验证Q值输出维度
-                                if q_values.size(1) != self.action_dim:
-                                    self.logger.error(
-                                        f"agent {self.agent_id} Q output dim mismatch: "
-                                        f"{q_values.size(1)} != {self.action_dim}"
-                                    )
-                                    action_idx = random.randint(0, self.action_dim - 1)
-                                else:
-                                    action_idx = q_values.argmax().item()
-                                    
-                                    # 确保动作索引在有效范围内
-                                    action_idx = max(0, min(action_idx, self.action_dim - 1))
-                                    
-                                    # 记录Q值统计
-                                    max_q = q_values.max().item()
-                                    self.training_stats['q_values'].append(max_q)
-                                    self.logger.debug(
-                                        f"agent {self.agent_id} exploit action_idx={action_idx}, "
-                                        f"max_Q={max_q:.3f}"
-                                    )
+                        q_row = q_values_numpy(self.q_network, state).reshape(-1)
+                        if q_row.shape[0] != self.action_dim:
+                            self.logger.error(
+                                f"agent {self.agent_id} Q output dim mismatch: "
+                                f"{q_row.shape[0]} != {self.action_dim}"
+                            )
+                            action_idx = random.randint(0, self.action_dim - 1)
+                        else:
+                            action_idx = int(q_row.argmax())
+                            action_idx = max(0, min(action_idx, self.action_dim - 1))
+                            self.training_stats['q_values'].append(float(q_row.max()))
             
             # 转换为环境动作
             action = self._action_idx_to_position(action_idx)
@@ -319,8 +294,7 @@ class IQLAgent(LearningAgent):
             self.last_action_idx = int(action_idx)  # 存储动作索引（整数）
             q_for_policy = None
             if self.q_network is not None and len(state) == self.state_dim:
-                with torch.no_grad():
-                    q_for_policy = self.q_network(torch.FloatTensor(state).unsqueeze(0)).numpy().flatten()
+                q_for_policy = q_values_numpy(self.q_network, state).reshape(-1)
             self.last_policy_entropy = policy_entropy_bits(
                 epsilon_greedy_policy(q_for_policy, self.epsilon, self.action_dim)
             )
@@ -664,22 +638,11 @@ class IQLAgent(LearningAgent):
                 )
                 return np.zeros(self.action_dim, dtype=np.float32)
             
-            with torch.no_grad():
-                state_tensor = torch.FloatTensor(state).unsqueeze(0)
-                
-                # 验证张量维度
-                if state_tensor.size(1) != self.state_dim:
-                    self.logger.error(f"state tensor dim mismatch: {state_tensor.size(1)} != {self.state_dim}")
-                    return np.zeros(self.action_dim, dtype=np.float32)
-                
-                q_values = self.q_network(state_tensor)
-                
-                # 验证Q值维度
-                if q_values.size(1) != self.action_dim:
-                    self.logger.error(f"Q output dim mismatch: {q_values.size(1)} != {self.action_dim}")
-                    return np.zeros(self.action_dim, dtype=np.float32)
-                
-                return q_values.numpy().flatten()
+            q_values = q_values_numpy(self.q_network, state).reshape(-1)
+            if q_values.shape[0] != self.action_dim:
+                self.logger.error(f"Q output dim mismatch: {q_values.shape[0]} != {self.action_dim}")
+                return np.zeros(self.action_dim, dtype=np.float32)
+            return q_values.astype(np.float32, copy=False)
         except Exception as e:
             self.logger.error(f"get_q_values failed: {e}", exc_info=True)
             return np.zeros(self.action_dim, dtype=np.float32)
@@ -826,11 +789,9 @@ class IQLAgent(LearningAgent):
             s = np.asarray(state, dtype=np.float32).reshape(-1)
             if s.size != self.state_dim:
                 return
-            with torch.no_grad():
-                st = torch.FloatTensor(s).unsqueeze(0)
-                qv = self.q_network(st)
-                if qv.dim() == 2 and qv.size(1) == self.action_dim:
-                    self.training_stats['q_values'].append(float(qv.max().item()))
+            qv = q_values_numpy(self.q_network, s).reshape(-1)
+            if qv.shape[0] == self.action_dim:
+                self.training_stats['q_values'].append(float(qv.max()))
         except Exception:
             pass
 

@@ -28,21 +28,18 @@ def local_channels(environment: Any, x: int, y: int, vision_range: int) -> np.nd
     size = int(environment.size)
     max_sugar = max(float(getattr(environment, "max_sugar", 10.0)), 1e-6)
     max_spice = max(float(getattr(environment, "max_spice", 6.0)), 1e-6)
-    sugar_map = environment.sugar_map
+    # 与 ActionCodec 同一套环面：站在边上向左看，看到的是地图另一侧，而不是被夹回原地。
+    offsets = np.arange(-vision, vision + 1)
+    xs = (offsets + int(x)) % size
+    ys = (offsets + int(y)) % size
+    grid_x, grid_y = np.meshgrid(xs, ys, indexing="ij")
+    channels[0] = np.asarray(environment.sugar_map, dtype=np.float32)[grid_x, grid_y] / max_sugar
     spice_map = getattr(environment, "spice_map", None)
     hazard_map = getattr(environment, "hazard_map", None)
-
-    for dx in range(-vision, vision + 1):
-        for dy in range(-vision, vision + 1):
-            ix = dx + vision
-            iy = dy + vision
-            env_x = min(max(int(x) + dx, 0), size - 1)
-            env_y = min(max(int(y) + dy, 0), size - 1)
-            channels[0, ix, iy] = float(sugar_map[env_x, env_y]) / max_sugar
-            if spice_map is not None:
-                channels[1, ix, iy] = float(spice_map[env_x, env_y]) / max_spice
-            if hazard_map is not None:
-                channels[2, ix, iy] = float(hazard_map[env_x, env_y])
+    if spice_map is not None:
+        channels[1] = np.asarray(spice_map, dtype=np.float32)[grid_x, grid_y] / max_spice
+    if hazard_map is not None:
+        channels[2] = np.asarray(hazard_map, dtype=np.float32)[grid_x, grid_y]
     return np.nan_to_num(channels, nan=0.0, posinf=1.0, neginf=0.0)
 
 

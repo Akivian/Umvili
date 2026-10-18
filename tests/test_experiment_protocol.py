@@ -113,6 +113,14 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(ObservationSpecError):
             local_channels(env, 0, 0, 0)
 
+    def test_local_view_wraps_like_movement(self):
+        env = _MapEnv(size=10)
+        env.sugar_map[:, :] = 0.0
+        env.sugar_map[9, 0] = 10.0
+        channels = local_channels(env, 0, 0, vision_range=1)
+        # West of x=0 is x=9. Clamping would have repeated x=0 instead.
+        self.assertAlmostEqual(float(channels[0, 0, 1]), 1.0)
+
     def test_action_codec_wraps_and_has_eight_targets(self):
         codec = ActionCodec(10)
         self.assertEqual(codec.index_to_position(0, 0, 6), (9, 0))

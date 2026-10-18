@@ -104,25 +104,30 @@ class SpatialQNetwork(nn.Module):
         view_size: int,
         action_dim: int,
         ego_dim: int = 4,
-        conv_channels: Tuple[int, int] = (16, 32),
+        conv_channels: Tuple[int, int] = (128, 256),
+        head_dim: int = 1024,
+        ego_hidden: int = 256,
+        pool_size: int = 8,
     ):
         super().__init__()
         self.view_size = int(view_size)
         self.ego_dim = int(ego_dim)
         self.spatial_dim = 3 * self.view_size * self.view_size
+        width_in, width_out = int(conv_channels[0]), int(conv_channels[1])
         self.conv = nn.Sequential(
-            nn.Conv2d(3, conv_channels[0], kernel_size=3, padding=1),
+            nn.Conv2d(3, width_in, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(conv_channels[0], conv_channels[1], kernel_size=3, padding=1),
+            nn.Conv2d(width_in, width_out, kernel_size=3, padding=1),
             nn.ReLU(),
         )
-        self.pool = nn.AdaptiveAvgPool2d(4)
-        pooled = conv_channels[1] * 4 * 4
-        self.ego = nn.Sequential(nn.Linear(self.ego_dim, 32), nn.ReLU())
+        pool = int(pool_size)
+        self.pool = nn.AdaptiveAvgPool2d(pool)
+        pooled = width_out * pool * pool
+        self.ego = nn.Sequential(nn.Linear(self.ego_dim, int(ego_hidden)), nn.ReLU())
         self.head = nn.Sequential(
-            nn.Linear(pooled + 32, 128),
+            nn.Linear(pooled + int(ego_hidden), int(head_dim)),
             nn.ReLU(),
-            nn.Linear(128, action_dim),
+            nn.Linear(int(head_dim), action_dim),
         )
         for module in self.modules():
             if isinstance(module, nn.Conv2d):
@@ -140,6 +145,21 @@ class SpatialQNetwork(nn.Module):
         ego = flat[:, self.spatial_dim : self.spatial_dim + self.ego_dim]
         features = self.pool(self.conv(spatial)).reshape(flat.shape[0], -1)
         return self.head(torch.cat([features, self.ego(ego)], dim=1))
+
+
+def build_spatial_q(view_size: int, action_dim: int, config: Optional[dict] = None, ego_dim: int = 4) -> SpatialQNetwork:
+    """Build the shared Q network from protocol fields. Shape changes require a new run."""
+    config = config or {}
+    channels = config.get("conv_channels", (128, 256))
+    return SpatialQNetwork(
+        view_size=view_size,
+        action_dim=action_dim,
+        ego_dim=ego_dim,
+        conv_channels=tuple(int(v) for v in channels),
+        head_dim=int(config.get("head_dim", 1024)),
+        ego_hidden=int(config.get("ego_hidden", 256)),
+        pool_size=int(config.get("pool_size", 8)),
+    )
 
 
 class QNetwork(MLP):
