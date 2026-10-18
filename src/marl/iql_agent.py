@@ -314,54 +314,7 @@ class IQLAgent(LearningAgent):
             # 转换为环境动作
             action = self._action_idx_to_position(action_idx)
             
-            # 准备经验数据（在update方法中完善并存储）
-            # 注意：使用last_action_idx而不是last_action，避免与BaseAgent的last_action（位置tuple）冲突
-            if self.last_state is not None and self.last_action_idx is not None:
-                # 确保last_state和state都是numpy数组且维度正确
-                last_state = np.array(self.last_state, dtype=np.float32)
-                current_state = np.array(state, dtype=np.float32)
-                
-                # 确保维度匹配
-                if len(last_state) != self.state_dim:
-                    last_state = np.zeros(self.state_dim, dtype=np.float32)
-                if len(current_state) != self.state_dim:
-                    current_state = np.zeros(self.state_dim, dtype=np.float32)
-                
-                # 确保last_action_idx是整数
-                action_idx_value = self.last_action_idx
-                if isinstance(action_idx_value, tuple):
-                    # 如果意外是tuple，记录错误并使用默认值
-                    self.logger.error(
-                        f"agent {self.agent_id} last_action_idx is tuple not int: {action_idx_value}; "
-                        f"using random action index"
-                    )
-                    action_idx_value = random.randint(0, self.action_dim - 1)
-                elif not isinstance(action_idx_value, (int, np.integer)):
-                    # 如果不是整数类型，尝试转换
-                    try:
-                        action_idx_value = int(action_idx_value)
-                    except (ValueError, TypeError):
-                        self.logger.error(
-                            f"agent {self.agent_id} cannot cast last_action_idx to int: {action_idx_value}; "
-                            f"using random action index"
-                        )
-                        action_idx_value = random.randint(0, self.action_dim - 1)
-                
-                # 确保动作索引在有效范围内
-                action_idx_value = max(0, min(int(action_idx_value), self.action_dim - 1))
-                
-                experience = Experience(
-                    state=last_state,
-                    action=int(action_idx_value),  # 确保是整数
-                    reward=0.0,  # 在update中设置实际奖励
-                    next_state=current_state,
-                    done=False,
-                    agent_id=self.agent_id,
-                    timestamp=time.time()
-                )
-                self.last_experience = experience
-            
-            # 更新状态记录（确保是numpy数组）
+            # 状态留在移动前。奖励和后继状态在 update 里、移动完成之后写入同一次动作。
             self.last_state = np.array(state, dtype=np.float32)
             self.last_action_idx = int(action_idx)  # 存储动作索引（整数）
             q_for_policy = None
@@ -398,29 +351,32 @@ class IQLAgent(LearningAgent):
             
             # 调用父类更新逻辑（移动、收集糖、新陈代谢）
             is_alive = super().update(environment)
-            
-            # 完善并存储经验数据
-            if self.last_experience is not None:
-                # 计算奖励（基于实际变化）
-                reward = self._calculate_reward()
-                self.last_experience.reward = reward
-                
-                if (not is_alive) or getattr(self, "episode_cutoff", False):
-                    self.last_experience.done = True
-                
-                if self.trainer is not None:
-                    self.trainer.store({
-                        "state": self.last_experience.state,
-                        "action": self.last_experience.action,
-                        "reward": self.last_experience.reward,
-                        "next_state": self.last_experience.next_state,
-                        "done": self.last_experience.done,
-                        "agent_id": self.agent_id,
-                    })
-                elif self.replay_buffer is not None:
-                    self.replay_buffer.add(self.last_experience)
-                self.logger.debug(f"agent {self.agent_id} store experience reward={reward:.3f}")
-                self.last_experience = None
+            if self.last_state is None or self.last_action_idx is None:
+                return is_alive
+
+            reward = self._calculate_reward()
+            done = (not is_alive) or getattr(self, "episode_cutoff", False)
+            post = self._process_observation(self.observe(environment))
+            transition = {
+                "state": np.array(self.last_state, dtype=np.float32),
+                "action": int(self.last_action_idx),
+                "reward": reward,
+                "next_state": post,
+                "done": done,
+                "agent_id": self.agent_id,
+            }
+            if self.trainer is not None:
+                self.trainer.store(transition)
+            elif self.replay_buffer is not None:
+                self.replay_buffer.add(Experience(
+                    state=transition["state"],
+                    action=transition["action"],
+                    reward=reward,
+                    next_state=post,
+                    done=done,
+                    agent_id=self.agent_id,
+                    timestamp=time.time(),
+                ))
             
             if self.trainer is None and self.training_step % self.config.train_frequency == 0:
                 self.learn({})

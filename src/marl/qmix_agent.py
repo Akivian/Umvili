@@ -228,22 +228,7 @@ class QMIXAgent(LearningAgent):
         # 转换为环境动作
         action = self._action_idx_to_position(action_idx)
         
-        # 准备经验数据（在update方法中完善并发送给训练器）
-        # 这里使用上一步的离散动作索引，而不是 BaseAgent.last_action（坐标）
-        if self.last_state is not None and self.last_action_idx is not None:
-            self.pending_experience = {
-                'agent_id': self.agent_id,
-                'state': self.last_state,
-                'action': self.last_action_idx,
-                'reward': 0.0,  # 在update中设置实际奖励
-                'next_state': state,
-                'done': False,
-                'global_state': self.last_global_state,
-                'next_global_state': global_state,
-                'timestamp': time.time()
-            }
-        
-        # 更新状态记录（保存离散动作索引）
+        # 状态留在移动前。同一次动作的奖励和后继状态在 update 里写入。
         self.last_state = state
         self.last_action_idx = action_idx
         self.last_global_state = global_state
@@ -302,25 +287,20 @@ class QMIXAgent(LearningAgent):
             
             # 调用父类更新逻辑（移动、收集糖、新陈代谢）
             is_alive = super().update(environment)
-            
-            # 计算奖励
             reward = self._calculate_reward(prev_sugar, prev_position)
-            
-            # 完善并发送经验数据
-            if self.pending_experience is not None:
-                self.pending_experience['reward'] = reward
-                self.pending_experience['done'] = (not is_alive) or getattr(self, "episode_cutoff", False)
-                
-                # 发送给训练器
-                if self.trainer and hasattr(self.trainer, 'store_individual_experience'):
-                    self.trainer.store_individual_experience(self.pending_experience)
-                    self.logger.debug(f"agent {self.agent_id} push experience to trainer reward={reward:.3f}")
-                else:
-                    self.logger.warning(
-                        f"agent {self.agent_id} cannot push experience: trainer missing or no store method"
-                    )
-                
-                self.pending_experience = None
+            if self.last_state is not None and self.last_action_idx is not None and self.trainer is not None:
+                post = self.observe(environment)
+                self.trainer.store_individual_experience({
+                    "agent_id": self.agent_id,
+                    "state": self.last_state,
+                    "action": int(self.last_action_idx),
+                    "reward": reward,
+                    "next_state": self._process_observation(post),
+                    "done": (not is_alive) or getattr(self, "episode_cutoff", False),
+                    "global_state": self.last_global_state,
+                    "next_global_state": self._get_global_state(post),
+                    "timestamp": time.time(),
+                })
             
             # 更新探索率
             self.update_epsilon()
